@@ -49,6 +49,12 @@ export function Navbar() {
       const parsedUser = JSON.parse(userData);
       setUser(parsedUser);
       fetchNotifications();
+
+      const interval = setInterval(() => {
+        fetchNotifications();
+      }, 10000);
+
+      return () => clearInterval(interval);
     }
   }, []);
 

@@ -25,6 +25,10 @@ router.post("/:complaintId/help", authMiddleware, async (req: Request, res: Resp
       return res.status(403).json({ error: "Only NGO users can help with complaints" });
     }
 
+    if (user.ngoStatus !== "VERIFIED") {
+      return res.status(403).json({ error: "NGO account must be verified by an administrator to pledge assistance" });
+    }
+
     // Check if complaint exists
     const complaint = await prisma.complaint.findUnique({
       where: { id: complaintId }

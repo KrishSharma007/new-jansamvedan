@@ -1,75 +1,100 @@
-# Backend Setup
+# Backend Setup & Architecture
 
-This backend uses Prisma with PostgreSQL for persistent storage.
+JanSamvedan backend is built with Express, TypeScript, and Prisma ORM.
+
+---
+
+## Database Configuration
+
+The application is configured by default for **zero-config local development and testing** using SQLite (`backend/prisma/dev.db`), and supports production deployment using **PostgreSQL**.
+
+### 1. Local Development (SQLite — Default)
+- **Database File**: `backend/prisma/dev.db`
+- **Setup Command**:
+  ```bash
+  cd backend
+  npx prisma db push
+  npx ts-node prisma/seed.ts
+  ```
+
+### 2. Production Deployment (PostgreSQL)
+To switch to PostgreSQL for production deployment:
+1. Update `backend/prisma/schema.prisma`:
+   ```prisma
+   datasource db {
+     provider = "postgresql"
+     url      = env("DATABASE_URL")
+   }
+   ```
+2. Set your environment variable in `backend/.env`:
+   ```env
+   DATABASE_URL="postgresql://user:password@localhost:5432/jansamvedan?schema=public"
+   ```
+3. Run migrations:
+   ```bash
+   npx prisma migrate dev --name init
+   ```
+
+---
 
 ## Prerequisites
 
 - Node.js 18+
-- PostgreSQL 14+
+- npm
 
-## Environment
+## Environment Variables
 
-Create `.env` and set your variables:
+Create `backend/.env` (optional for local SQLite, required for PostgreSQL or custom JWT secret):
 
-Required:
-
-- `DATABASE_URL` — Postgres connection string
-- `JWT_SECRET` — random long secret
-- `JWT_EXPIRES_IN` — e.g. `7d`
-- `PORT` — optional (default 4000)
-
-Example `.env`:
-
-```
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/civic_platform?schema=public"
-JWT_SECRET="change-me-to-a-strong-secret"
+```env
+DATABASE_URL="file:./dev.db"
+JWT_SECRET="jansamvedan-super-secret-jwt-key"
 JWT_EXPIRES_IN="7d"
 PORT=4000
 ```
 
-## Install
+---
 
-```
-cd backend
-npm install
-```
+## Installation & Running
 
-## Database
+1. **Install dependencies**:
+   ```bash
+   cd backend
+   npm install
+   ```
 
-- Create DB and run migrations:
+2. **Seed sample data**:
+   ```bash
+   npx ts-node prisma/seed.ts
+   ```
 
-```
-npx prisma migrate dev --name init
-```
+3. **Start backend server**:
+   ```bash
+   npm run dev
+   ```
+   Server listens at `http://localhost:4000`.
 
-- Generate Prisma Client:
+---
 
-```
-npx prisma generate
-```
+## Key API Endpoints Overview
 
-- Seed roles and admin user:
+### Authentication & NGO Verification
+- `POST /auth/register` — Citizen & NGO user registration (NGOs start as `PENDING`)
+- `POST /auth/login` — User authentication (returns JWT token)
+- `GET /auth/ngos` — List NGOs with status filter (*Admin only*)
+- `PATCH /auth/ngos/:id/status` — Approve or reject NGO verification (*Admin only*)
 
-```
-npm run db:seed
-```
+### Reports & Crowd Verification
+- `GET /reports` — Fetch civic reports (*Admin*)
+- `GET /reports/for-ngo` — Fetch relevant reports scoped to service area (*NGO*)
+- `POST /reports` — File a new report ticket
+- `POST /reports/find-duplicates` — Proximity and address duplicate issue detection
+- `POST /reports/:id/confirm` — Crowd confirmation & dynamic priority score boost
+- `PATCH /reports/:id/status` — Status transition & atomic audit trail logging
 
-## Run server
+### Helper Pledges
+- `POST /helpers/:complaintId/help` — Pledge NGO assistance (*Verified NGOs only*)
 
-```
-npm run dev
-```
-
-Server runs at `http://localhost:4000`.
-
-## API routes
-
-- POST `/auth/register` — name, email, password, phone?, address?
-- POST `/auth/login` — email, password
-- GET `/profile` — requires `Authorization: Bearer <token>`
-
-## Prisma Studio (optional)
-
-```
-npx prisma studio
-```
+### Notifications
+- `GET /notifications/me` — Fetch user notifications & unread count
+- `PATCH /notifications/:id/read` — Mark notification read
