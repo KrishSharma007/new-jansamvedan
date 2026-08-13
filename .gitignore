@@ -4,10 +4,12 @@
 /node_modules
 backend/node_modules
 
-# sqlite database
+# sqlite database & local uploads
 *.db
 *.db-journal
 backend/prisma/*.db
+backend/uploads/*
+!backend/uploads/.gitkeep
 
 # next.js
 /.next/
