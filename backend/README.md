@@ -1,53 +1,29 @@
 # Backend Setup & Architecture
 
-JanSamvedan backend is built with Express, TypeScript, and Prisma ORM.
+JanSamvedan backend is built with Express, TypeScript, and Prisma ORM using **PostgreSQL** exclusively for production and development storage.
 
 ---
 
-## Database Configuration
+## Database Configuration (PostgreSQL Only)
 
-The application is configured by default for **zero-config local development and testing** using SQLite (`backend/prisma/dev.db`), and supports production deployment using **PostgreSQL**.
+The application uses **PostgreSQL** via Prisma.
 
-### 1. Local Development (SQLite — Default)
-- **Database File**: `backend/prisma/dev.db`
-- **Setup Command**:
-  ```bash
-  cd backend
-  npx prisma db push
-  npx ts-node prisma/seed.ts
-  ```
-
-### 2. Production Deployment (PostgreSQL)
-To switch to PostgreSQL for production deployment:
-1. Update `backend/prisma/schema.prisma`:
-   ```prisma
-   datasource db {
-     provider = "postgresql"
-     url      = env("DATABASE_URL")
-   }
-   ```
-2. Set your environment variable in `backend/.env`:
-   ```env
-   DATABASE_URL="postgresql://user:password@localhost:5432/jansamvedan?schema=public"
-   ```
-3. Run migrations:
-   ```bash
-   npx prisma migrate dev --name init
-   ```
+### Prisma Datasource (`backend/prisma/schema.prisma`):
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+```
 
 ---
-
-## Prerequisites
-
-- Node.js 18+
-- npm
 
 ## Environment Variables
 
-Create `backend/.env` (optional for local SQLite, required for PostgreSQL or custom JWT secret):
+Create `backend/.env`:
 
 ```env
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="postgresql://user:password@localhost:5432/jansamvedan?schema=public"
 JWT_SECRET="jansamvedan-super-secret-jwt-key"
 JWT_EXPIRES_IN="7d"
 PORT=4000
@@ -55,7 +31,7 @@ PORT=4000
 
 ---
 
-## Installation & Running
+## Installation & Setup
 
 1. **Install dependencies**:
    ```bash
@@ -63,12 +39,17 @@ PORT=4000
    npm install
    ```
 
-2. **Seed sample data**:
+2. **Sync Database Schema**:
+   ```bash
+   npx prisma db push
+   ```
+
+3. **Seed Database**:
    ```bash
    npx ts-node prisma/seed.ts
    ```
 
-3. **Start backend server**:
+4. **Start Backend Server**:
    ```bash
    npm run dev
    ```
