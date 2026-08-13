@@ -11,11 +11,14 @@ import { analyticsRouter } from "./routes/analytics";
 import { exportRouter } from "./routes/export";
 import { notificationsRouter } from "./routes/notifications";
 
+import path from "path";
+
 const prisma = new PrismaClient();
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+app.use("/uploads/files", express.static(path.join(process.cwd(), "uploads")));
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
