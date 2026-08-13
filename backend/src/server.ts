@@ -9,6 +9,7 @@ import { uploadsRouter } from "./routes/uploads";
 import helpersRouter from "./routes/helpers";
 import { analyticsRouter } from "./routes/analytics";
 import { exportRouter } from "./routes/export";
+import { notificationsRouter } from "./routes/notifications";
 
 const prisma = new PrismaClient();
 const app = express();
@@ -24,6 +25,7 @@ app.use("/reports", reportsRouter);
 app.use("/helpers", helpersRouter);
 app.use("/analytics", analyticsRouter);
 app.use("/export", exportRouter);
+app.use("/notifications", notificationsRouter);
 
 // Example protected route
 app.get("/profile", authMiddleware, async (req, res) => {

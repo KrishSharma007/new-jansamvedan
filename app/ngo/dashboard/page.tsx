@@ -16,13 +16,15 @@ import {
 import {
   MapPin,
   Search,
-  Filter,
   Eye,
   Heart,
   Calendar,
   Navigation,
   Users,
   AlertTriangle,
+  Building2,
+  CheckCircle2,
+  Filter,
 } from "lucide-react";
 import { ReportDetailModal } from "@/components/report-detail-modal";
 
@@ -33,6 +35,8 @@ type Report = {
   description: string;
   category: string;
   priority: string;
+  computedPriority?: string;
+  confirmationsCount?: number;
   status: string;
   address: string | null;
   latitude?: number | null;
@@ -62,29 +66,17 @@ const getStatusColor = (status: string) => {
 };
 
 const getPriorityColor = (priority: string) => {
-  switch (priority) {
+  switch (priority?.toLowerCase()) {
     case "high":
+    case "urgent":
       return "bg-red-100 text-red-800";
     case "medium":
-      return "bg-yellow-100 text-yellow-800";
+      return "bg-amber-100 text-amber-800";
     case "low":
       return "bg-green-100 text-green-800";
     default:
       return "bg-gray-100 text-gray-800";
   }
-};
-
-// Calculate distance between two coordinates (Haversine formula)
-const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371; // Radius of the Earth in kilometers
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
 };
 
 export default function NgoDashboardPage() {
@@ -95,11 +87,15 @@ export default function NgoDashboardPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
-  const [radiusFilter, setRadiusFilter] = useState("all");
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [helpingReports, setHelpingReports] = useState<Set<string>>(new Set());
+
+  // NGO Status & Service Area states
+  const [pendingApproval, setPendingApproval] = useState(false);
+  const [serviceArea, setServiceArea] = useState<string>("All Areas");
+  const [showOnlyServiceArea, setShowOnlyServiceArea] = useState(true);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -110,19 +106,15 @@ export default function NgoDashboardPage() {
       return;
     }
 
-    // Debug: Check user role
     if (user) {
       const userData = JSON.parse(user);
-      console.log("NGO Dashboard - User data:", userData);
       if (userData.role !== "NGO") {
-        console.error("User is not an NGO, role:", userData.role);
-        setError("Access denied: This page is for NGO users only");
+        setError("Access denied: This page is for registered NGO accounts only");
         setLoading(false);
         return;
       }
     }
 
-    // Get user's current location
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -131,31 +123,31 @@ export default function NgoDashboardPage() {
             lng: position.coords.longitude
           });
         },
-        (error) => {
-          console.log("Geolocation error:", error);
-        }
+        (error) => console.log("Geolocation error:", error)
       );
     }
 
     async function load() {
       try {
-        console.log(
-          "Fetching reports for NGO from:",
-          `${API_BASE}/reports/for-ngo`
-        );
         const res = await fetch(`${API_BASE}/reports/for-ngo`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({}));
-          console.error("Failed to load reports:", res.status, errorData);
           throw new Error(errorData.error || "Failed to load reports");
         }
         const data = await res.json();
-        // Filter out resolved reports from NGO view
-        setReports(data.filter((report: Report) => report.status !== "RESOLVED"));
 
-        // Load helping status
+        if (data.pendingApproval) {
+          setPendingApproval(true);
+          setReports([]);
+        } else {
+          setPendingApproval(false);
+          setServiceArea(data.serviceArea || "All Areas");
+          const reportList = Array.isArray(data) ? data : data.reports || [];
+          setReports(reportList.filter((report: Report) => report.status !== "RESOLVED"));
+        }
+
         const helpingRes = await fetch(`${API_BASE}/helpers/ngo/my-helping`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -174,7 +166,6 @@ export default function NgoDashboardPage() {
     load();
   }, [router]);
 
-  // Filter reports based on search, category, priority, and radius
   const filteredReports = reports.filter((report) => {
     const matchesSearch =
       report.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -184,21 +175,9 @@ export default function NgoDashboardPage() {
       categoryFilter === "all" || report.category.toLowerCase() === categoryFilter;
     
     const matchesPriority =
-      priorityFilter === "all" || report.priority.toLowerCase() === priorityFilter;
-    
-    let matchesRadius = true;
-    if (radiusFilter !== "all" && userLocation && report.latitude && report.longitude) {
-      const distance = calculateDistance(
-        userLocation.lat,
-        userLocation.lng,
-        report.latitude,
-        report.longitude
-      );
-      const radiusKm = parseInt(radiusFilter);
-      matchesRadius = distance <= radiusKm;
-    }
-    
-    return matchesSearch && matchesCategory && matchesPriority && matchesRadius;
+      priorityFilter === "all" || (report.computedPriority || report.priority).toLowerCase() === priorityFilter;
+
+    return matchesSearch && matchesCategory && matchesPriority;
   });
 
   const handleViewDetails = (report: Report) => {
@@ -214,10 +193,7 @@ export default function NgoDashboardPage() {
   const handleWantToHelp = async (reportId: string) => {
     try {
       const token = localStorage.getItem("token");
-      if (!token) {
-        router.replace("/login");
-        return;
-      }
+      if (!token) return router.replace("/login");
 
       const isCurrentlyHelping = helpingReports.has(reportId);
       const action = isCurrentlyHelping ? "remove" : "add";
@@ -236,7 +212,6 @@ export default function NgoDashboardPage() {
         throw new Error(errorData.error || "Failed to update helping status");
       }
 
-      // Update local state
       setHelpingReports(prev => {
         const newSet = new Set(prev);
         if (isCurrentlyHelping) {
@@ -248,231 +223,218 @@ export default function NgoDashboardPage() {
       });
     } catch (error) {
       console.error("Error updating helping status:", error);
-      // You could add a toast notification here
     }
   };
 
-  if (loading) return <div className="p-6">Loading...</div>;
+  if (loading) return <div className="p-6">Loading NGO Portal...</div>;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 to-accent/5 py-8">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">
-            NGO Dashboard
-          </h1>
-          <p className="text-muted-foreground">
-            Help resolve civic issues in your area
-          </p>
-        </div>
+        <div className="mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground mb-1">
+              NGO Action Dashboard
+            </h1>
+            <p className="text-muted-foreground">
+              Partner with municipal authorities to adopt and resolve neighborhood civic issues
+            </p>
+          </div>
 
-        {/* Filters */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-lg">Filter Reports</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Search</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by title or location..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Category</label>
-                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    <SelectItem value="pothole">Pothole</SelectItem>
-                    <SelectItem value="garbage">Garbage</SelectItem>
-                    <SelectItem value="street light">Street Light</SelectItem>
-                    <SelectItem value="water supply">Water Supply</SelectItem>
-                    <SelectItem value="park">Park</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Priority</label>
-                <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Priorities</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Distance</label>
-                <Select value={radiusFilter} onValueChange={setRadiusFilter}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Distances</SelectItem>
-                    <SelectItem value="1">Within 1 km</SelectItem>
-                    <SelectItem value="5">Within 5 km</SelectItem>
-                    <SelectItem value="10">Within 10 km</SelectItem>
-                    <SelectItem value="25">Within 25 km</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Reports List */}
-        <div className="space-y-4">
-          {filteredReports.length === 0 ? (
-            <Card>
-              <CardContent className="text-center py-12">
-                <AlertTriangle className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No reports found</h3>
-                <p className="text-muted-foreground mb-4">
-                  {searchTerm || categoryFilter !== "all" || priorityFilter !== "all" || radiusFilter !== "all"
-                    ? "Try adjusting your filters"
-                    : "No active reports in your area"}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            filteredReports.map((report) => (
-              <Card key={report.id} className="hover:shadow-md transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-lg">{report.title}</CardTitle>
-                        {report.complaintId && (
-                          <Badge variant="outline">#{report.complaintId}</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <MapPin className="h-4 w-4" />
-                        {report.address || "No address provided"}
-                      </div>
-                      {userLocation && report.latitude && report.longitude && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Navigation className="h-4 w-4" />
-                          {calculateDistance(
-                            userLocation.lat,
-                            userLocation.lng,
-                            report.latitude,
-                            report.longitude
-                          ).toFixed(1)} km away
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-2 items-end">
-                      <Badge className={getStatusColor(report.status)}>
-                        {report.status.replace("_", " ")}
-                      </Badge>
-                      <Badge className={getPriorityColor(report.priority)}>
-                        {report.priority.toUpperCase()}
-                      </Badge>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground mb-4">{report.description}</p>
-                  
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-4 w-4" />
-                        {new Date(report.createdAt).toLocaleDateString()}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Users className="h-4 w-4" />
-                        {report.category}
-                      </div>
-                    </div>
-                    
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleTrackOnMap(report)}
-                        disabled={!report.latitude || !report.longitude}
-                      >
-                        <MapPin className="h-4 w-4 mr-1" />
-                        Track on Map
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => handleViewDetails(report)}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        View Details
-                      </Button>
-                      <Button
-                        variant={helpingReports.has(report.id) ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => handleWantToHelp(report.id)}
-                      >
-                        <Heart className="h-4 w-4 mr-1" />
-                        {helpingReports.has(report.id) ? "Helping" : "I Want to Help"}
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+          {!pendingApproval && (
+            <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-200 text-sm px-3 py-1 flex items-center gap-1.5">
+              <Building2 className="h-4 w-4" />
+              Service Area: {serviceArea}
+            </Badge>
           )}
         </div>
 
-        {/* Summary Stats */}
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="text-center py-6">
-              <div className="text-2xl font-bold text-primary">
-                {filteredReports.length}
+        {/* Pending Approval Banner */}
+        {pendingApproval && (
+          <Card className="mb-8 border-2 border-amber-300 bg-amber-50 shadow-md">
+            <CardContent className="p-6 flex items-start gap-4">
+              <AlertTriangle className="h-8 w-8 text-amber-600 flex-shrink-0 mt-1" />
+              <div>
+                <h3 className="text-lg font-bold text-amber-900 mb-1">
+                  Registration Awaiting Verification
+                </h3>
+                <p className="text-sm text-amber-800">
+                  Your NGO account is currently in <span className="font-semibold text-amber-950">PENDING</span> status awaiting municipal administration verification. Once approved, you will be able to pledge assistance and action civic reports in your service area.
+                </p>
               </div>
-              <div className="text-sm text-muted-foreground">Available Reports</div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="text-center py-6">
-              <div className="text-2xl font-bold text-red-600">
-                {filteredReports.filter((r) => r.priority === "high").length}
-              </div>
-              <div className="text-sm text-muted-foreground">High Priority</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="text-center py-6">
-              <div className="text-2xl font-bold text-blue-600">
-                {filteredReports.filter((r) => r.status === "PENDING").length}
-              </div>
-              <div className="text-sm text-muted-foreground">Pending</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="text-center py-6">
-              <div className="text-2xl font-bold text-green-600">
-                {helpingReports.size}
-              </div>
-              <div className="text-sm text-muted-foreground">You're Helping</div>
-            </CardContent>
-          </Card>
-        </div>
+        )}
+
+        {!pendingApproval && (
+          <>
+            {/* Filters */}
+            <Card className="mb-6 border-slate-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-emerald-600" />
+                  Filter Civic Reports
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Search Keyword / Address</label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search by title, location..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Issue Category</label>
+                    <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        <SelectItem value="pothole">Pothole</SelectItem>
+                        <SelectItem value="garbage collection">Garbage Collection</SelectItem>
+                        <SelectItem value="street light">Street Light</SelectItem>
+                        <SelectItem value="water supply">Water Supply</SelectItem>
+                        <SelectItem value="drainage">Drainage</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Priority Level</label>
+                    <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Priorities</SelectItem>
+                        <SelectItem value="high">High Priority</SelectItem>
+                        <SelectItem value="medium">Medium Priority</SelectItem>
+                        <SelectItem value="low">Low Priority</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Reports List */}
+            <div className="space-y-4">
+              {filteredReports.length === 0 ? (
+                <Card>
+                  <CardContent className="text-center py-12">
+                    <AlertTriangle className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No relevant reports found</h3>
+                    <p className="text-muted-foreground mb-4">
+                      No active reports match your service area filters at this time.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                filteredReports.map((report) => (
+                  <Card key={report.id} className="hover:shadow-md transition-shadow border-slate-200">
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-lg">{report.title}</CardTitle>
+                            {report.complaintId && (
+                              <Badge variant="outline" className="font-mono">#{report.complaintId}</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-slate-500">
+                            <MapPin className="h-4 w-4" />
+                            {report.address || "No address provided"}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-1.5 items-end">
+                          <Badge className={getStatusColor(report.status)}>
+                            {report.status.replace("_", " ")}
+                          </Badge>
+                          <Badge className={getPriorityColor(report.computedPriority || report.priority)}>
+                            {(report.computedPriority || report.priority).toUpperCase()}
+                          </Badge>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <p className="text-slate-600 text-sm">{report.description}</p>
+                      
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <div className="flex items-center gap-4 text-xs text-slate-500">
+                          <div className="flex items-center gap-1">
+                            <Calendar className="h-3.5 w-3.5" />
+                            {new Date(report.createdAt).toLocaleDateString()}
+                          </div>
+                          <div className="flex items-center gap-1 font-semibold text-emerald-800">
+                            👍 {report.confirmationsCount || 0} Citizen Confirms
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleViewDetails(report)}
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            View Details
+                          </Button>
+                          <Button
+                            variant={helpingReports.has(report.id) ? "default" : "outline"}
+                            size="sm"
+                            className={helpingReports.has(report.id) ? "bg-emerald-600 text-white" : "border-emerald-600 text-emerald-700 hover:bg-emerald-50"}
+                            onClick={() => handleWantToHelp(report.id)}
+                          >
+                            <Heart className="h-4 w-4 mr-1" />
+                            {helpingReports.has(report.id) ? "Helping" : "I Want to Help"}
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+
+            {/* Summary Stats */}
+            <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card>
+                <CardContent className="text-center py-6">
+                  <div className="text-2xl font-bold text-emerald-700">
+                    {filteredReports.length}
+                  </div>
+                  <div className="text-sm text-slate-500">Service Area Reports</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="text-center py-6">
+                  <div className="text-2xl font-bold text-red-600">
+                    {filteredReports.filter((r) => (r.computedPriority || r.priority) === "high").length}
+                  </div>
+                  <div className="text-sm text-slate-500">High Priority Issues</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="text-center py-6">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {helpingReports.size}
+                  </div>
+                  <div className="text-sm text-slate-500">Adopted / Helping Issues</div>
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        )}
 
         {/* Report Detail Modal */}
         <ReportDetailModal

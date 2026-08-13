@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { PrismaClient, ComplaintStatus } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { authMiddleware } from "../middleware/auth";
 
 const prisma = new PrismaClient();
@@ -335,7 +335,7 @@ exportRouter.get("/analytics/csv", authMiddleware, async (req: any, res) => {
     // Get analytics data
     const totalReports = await prisma.complaint.count();
     const resolvedReports = await prisma.complaint.count({
-      where: { status: ComplaintStatus.RESOLVED },
+      where: { status: "RESOLVED" },
     });
 
     // Get reports by category

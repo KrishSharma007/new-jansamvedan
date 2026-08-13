@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Camera, MapPin, Upload, Mic, Send, CheckCircle, Loader2 } from "lucide-react";
+import { Camera, MapPin, Upload, Send, CheckCircle, Loader2, AlertTriangle, ThumbsUp } from "lucide-react";
 import { reverseGeocode, formatCoordinates, isValidCoordinates } from "@/utils/geocoding";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
@@ -46,12 +46,81 @@ export default function ReportIssuePage() {
   const [error, setError] = useState<string>("");
   const [showMap, setShowMap] = useState(false);
 
+  // Duplicate detection state
+  const [duplicates, setDuplicates] = useState<any[]>([]);
+  const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.replace("/login");
     }
   }, [router]);
+
+  // Trigger duplicate check whenever category or coordinates/address change
+  useEffect(() => {
+    if (category && (address || (latitude && longitude))) {
+      checkDuplicates();
+    }
+  }, [category, address, latitude, longitude]);
+
+  const checkDuplicates = async () => {
+    setIsCheckingDuplicates(true);
+    try {
+      const token = localStorage.getItem("token");
+      const categoryMap: Record<string, string> = {
+        pothole: "Pothole",
+        garbage: "Garbage Collection",
+        streetlight: "Street Light",
+        water: "Water Supply",
+        drainage: "Drainage",
+        traffic: "Traffic Signal",
+        park: "Park Maintenance",
+      };
+      const catName = categoryMap[category] || category;
+
+      const res = await fetch(`${API_BASE}/reports/find-duplicates`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          category: catName,
+          latitude,
+          longitude,
+          address,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDuplicates(data || []);
+      }
+    } catch (err) {
+      console.error("Duplicate check error:", err);
+    } finally {
+      setIsCheckingDuplicates(false);
+    }
+  };
+
+  const confirmExistingReport = async (reportId: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_BASE}/reports/${reportId}/confirm`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to confirm report");
+      }
+      setIsSubmitted(true);
+    } catch (err: any) {
+      setError(err.message || "Failed to confirm report");
+    }
+  };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -117,9 +186,7 @@ export default function ReportIssuePage() {
 
   const openMapSelector = () => {
     setShowMap(true);
-    setError(""); // Clear any previous errors
-    
-    // Set default location (Delhi) if no location is set
+    setError("");
     if (!latitude || !longitude) {
       const defaultLat = 28.6139;
       const defaultLng = 77.209;
@@ -139,13 +206,11 @@ export default function ReportIssuePage() {
     e.preventDefault();
     setError("");
 
-    // Validate location
     if (!latitude || !longitude) {
       setError("Please select a location on the map");
       return;
     }
 
-    // Validate address
     if (!address.trim()) {
       setError("Please provide a proper address for the selected location");
       return;
@@ -155,7 +220,6 @@ export default function ReportIssuePage() {
       const token = localStorage.getItem("token");
       if (!token) return router.replace("/login");
 
-      // Upload image if present
       let imageUrl: string | undefined = undefined;
       if (selectedImage) {
         const up = await fetch(`${API_BASE}/uploads/image`, {
@@ -177,9 +241,16 @@ export default function ReportIssuePage() {
         imageUrl = upRes.url as string;
       }
 
-      // Use the latitude and longitude state variables
-      const lat = latitude;
-      const lng = longitude;
+      const categoryMap: Record<string, string> = {
+        pothole: "Pothole",
+        garbage: "Garbage Collection",
+        streetlight: "Street Light",
+        water: "Water Supply",
+        drainage: "Drainage",
+        traffic: "Traffic Signal",
+        park: "Park Maintenance",
+      };
+      const catName = categoryMap[category] || category || "Other";
 
       const res = await fetch(`${API_BASE}/reports`, {
         method: "POST",
@@ -188,13 +259,13 @@ export default function ReportIssuePage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          title: title || "Civic Issue",
+          title: title || `${catName} Issue`,
           description,
-          category: category || "other",
-          priority: priority || "low",
-          latitude: lat,
-          longitude: lng,
-          address: address,
+          category: catName,
+          priority: priority || "medium",
+          latitude,
+          longitude,
+          address,
           imageUrl,
         }),
       });
@@ -218,22 +289,27 @@ export default function ReportIssuePage() {
               <CheckCircle className="h-16 w-16 text-green-600" />
             </div>
             <CardTitle className="text-2xl sm:text-3xl text-green-700 mb-2">
-              Issue Reported Successfully!
+              Action Confirmed!
             </CardTitle>
             <CardDescription className="text-slate-600">
-              Your report has been submitted and will be reviewed by the appropriate authorities.
+              Thank you for contributing to crowd verification. Your action helps municipal authorities prioritize urgent civic issues.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-left">
               <p className="text-sm text-blue-800">
-                📧 You will receive updates on your registered email/phone.<br/>
-                📱 Track your report status in the "My Reports" section.
+                📧 Updates will be sent to your registered account.<br/>
+                📱 Track issue status in your dashboard.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
               <Button
-                onClick={() => setIsSubmitted(false)}
+                onClick={() => {
+                  setIsSubmitted(false);
+                  setDuplicates([]);
+                  setTitle("");
+                  setDescription("");
+                }}
                 variant="outline"
                 className="flex-1 h-11 border-slate-200 hover:bg-slate-50"
               >
@@ -260,7 +336,7 @@ export default function ReportIssuePage() {
             Report a Civic Issue
           </h1>
           <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto">
-            Help make your community better by reporting issues. Your report will be reviewed and addressed by the appropriate authorities.
+            Help make your community better by reporting issues. Our crowd-confirmation engine checks for duplicate reports nearby to boost issue priority automatically.
           </p>
         </div>
 
@@ -268,8 +344,7 @@ export default function ReportIssuePage() {
           <CardHeader>
             <CardTitle>Issue Details</CardTitle>
             <CardDescription>
-              Please provide as much detail as possible to help us resolve the
-              issue quickly
+              Please provide details or confirm an existing nearby issue
             </CardDescription>
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
@@ -279,172 +354,51 @@ export default function ReportIssuePage() {
                   {error}
                 </div>
               )}
-              
-              {/* Title */}
-              <div className="space-y-2">
-                <Label htmlFor="title" className="text-sm font-medium text-slate-700">
-                  Issue Title *
-                </Label>
-                <Input
-                  id="title"
-                  placeholder="Brief description of the issue"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  required
-                  className="h-11 border-slate-200 focus:border-green-400 focus:ring-green-400/20"
-                />
-              </div>
 
-              {/* Photo Upload */}
-              <div className="space-y-2">
-                <Label htmlFor="photo" className="text-sm font-medium text-slate-700">
-                  Photo Evidence (Optional)
-                </Label>
-                <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 sm:p-6 text-center hover:border-green-300 transition-colors">
-                  {selectedImage ? (
-                    <div className="space-y-4">
-                      <img
-                        src={selectedImage || "/placeholder.svg"}
-                        alt="Selected"
-                        className="mx-auto max-h-32 sm:max-h-48 rounded-lg shadow-sm"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setSelectedImage(null)}
-                        size="sm"
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        Remove Photo
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 sm:space-y-4">
-                      <Camera className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-slate-400" />
-                      <div>
-                        <Label
-                          htmlFor="photo-upload"
-                          className="cursor-pointer"
-                        >
-                          <Button type="button" variant="outline" asChild className="bg-white hover:bg-slate-50">
-                            <span>
-                              <Upload className="mr-2 h-4 w-4" />
-                              Choose Photo
-                            </span>
-                          </Button>
-                        </Label>
-                        <Input
-                          id="photo-upload"
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          className="hidden"
-                        />
-                      </div>
-                      <p className="text-xs sm:text-sm text-slate-500">
-                        Take a clear photo of the issue (JPG, PNG up to 10MB)
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Location */}
-              <div className="space-y-3">
-                <Label htmlFor="location" className="text-sm font-medium text-slate-700">
-                  Location *
-                </Label>
-                <div className="space-y-3">
-                  {/* Coordinates Display */}
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <Input
-                      id="location"
-                      placeholder="Click on map to select location"
-                      value={location}
-                      readOnly
-                      className="flex-1 h-11 border-slate-200 bg-slate-50"
-                    />
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={captureLocation}
-                        disabled={isCapturingLocation}
-                        className="flex-1 sm:flex-none h-11 border-slate-200 hover:bg-slate-50"
-                      >
-                        <MapPin className="h-4 w-4 mr-1" />
-                        <span className="hidden sm:inline">
-                          {isCapturingLocation ? "Getting..." : "Current"}
-                        </span>
-                        <span className="sm:hidden">
-                          {isCapturingLocation ? "..." : "GPS"}
-                        </span>
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={openMapSelector}
-                        className="flex-1 sm:flex-none h-11 border-slate-200 hover:bg-slate-50"
-                      >
-                        <MapPin className="h-4 w-4 mr-1" />
-                        <span className="hidden sm:inline">Select on Map</span>
-                        <span className="sm:hidden">Map</span>
-                      </Button>
-                    </div>
+              {/* Duplicate Detection Alert Banner */}
+              {duplicates.length > 0 && (
+                <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-amber-900 font-bold">
+                    <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                    <span>Existing Similar Issues Found Nearby!</span>
                   </div>
-
-                  {/* Address Display and Input */}
-                  <div className="space-y-2">
-                    <Label htmlFor="address" className="text-sm font-medium text-slate-700">
-                      Address *
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="address"
-                        placeholder="Address will be automatically detected or enter manually"
-                        value={address}
-                        onChange={(e) => setAddress(e.target.value)}
-                        required
-                        className="h-11 pr-10 border-slate-200 focus:border-green-400 focus:ring-green-400/20"
-                      />
-                      {isGeocoding && (
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                          <Loader2 className="h-4 w-4 animate-spin text-green-500" />
+                  <p className="text-xs text-amber-800">
+                    Instead of creating a new ticket, confirm an existing report to boost its crowd priority score!
+                  </p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {duplicates.map((dup) => (
+                      <div
+                        key={dup.id}
+                        className="p-3 bg-white rounded-lg border border-amber-200 flex items-center justify-between gap-3 text-xs shadow-sm"
+                      >
+                        <div>
+                          <div className="font-semibold text-slate-900">{dup.title} ({dup.complaintId})</div>
+                          <div className="text-slate-500">{dup.address || "Nearby location"}</div>
+                          <div className="flex gap-2 mt-1">
+                            <Badge variant="outline" className="text-[10px] bg-amber-100 text-amber-800 border-amber-200">
+                              {dup.confirmationsCount || 0} Confirmations
+                            </Badge>
+                            <Badge variant="outline" className="text-[10px] bg-blue-100 text-blue-800 border-blue-200">
+                              Priority: {dup.computedPriority || dup.priority}
+                            </Badge>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                    {address && (
-                      <div className="p-2 bg-green-50 border border-green-200 rounded-lg">
-                        <p className="text-xs text-green-700 flex items-center gap-1">
-                          <span>📍</span>
-                          <span className="truncate">{address}</span>
-                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => confirmExistingReport(dup.id)}
+                          className="bg-amber-600 hover:bg-amber-700 text-white text-xs whitespace-nowrap"
+                        >
+                          <ThumbsUp className="h-3.5 w-3.5 mr-1" />
+                          Confirm This Issue
+                        </Button>
                       </div>
-                    )}
+                    ))}
                   </div>
-
-                  {showMap && (
-                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                      <div className="p-3 bg-slate-50 border-b border-slate-200">
-                        <p className="text-sm text-slate-600 flex items-center gap-2">
-                          <MapPin className="h-4 w-4" />
-                          Click anywhere on the map to set the issue location
-                        </p>
-                      </div>
-                      <div className="relative">
-                        <LeafletMap
-                          latitude={latitude || 28.6139}
-                          longitude={longitude || 77.209}
-                          onLocationSelect={handleLocationSelect}
-                          height="300px"
-                        />
-                      </div>
-                    </div>
-                  )}
                 </div>
-              </div>
-
-              {/* Category and Priority in Grid */}
+              )}
+              
+              {/* Category and Location */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                 {/* Category */}
                 <div className="space-y-2">
@@ -468,36 +422,163 @@ export default function ReportIssuePage() {
                   </Select>
                 </div>
 
-                {/* Priority */}
+                {/* Initial Priority Preference */}
                 <div className="space-y-2">
                   <Label htmlFor="priority" className="text-sm font-medium text-slate-700">
-                    Priority Level *
+                    Initial Priority Level *
                   </Label>
                   <Select required onValueChange={setPriority}>
                     <SelectTrigger className="h-11 border-slate-200 focus:border-green-400 focus:ring-green-400/20">
                       <SelectValue placeholder="Select priority" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="low">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                          <span>Low - Minor inconvenience</span>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="medium">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                          <span>Medium - Moderate impact</span>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="high">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                          <span>High - Safety concern</span>
-                        </div>
-                      </SelectItem>
+                      <SelectItem value="low">Low - Minor issue</SelectItem>
+                      <SelectItem value="medium">Medium - Moderate impact</SelectItem>
+                      <SelectItem value="high">High - Serious concern</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+              </div>
+
+              {/* Title */}
+              <div className="space-y-2">
+                <Label htmlFor="title" className="text-sm font-medium text-slate-700">
+                  Issue Title *
+                </Label>
+                <Input
+                  id="title"
+                  placeholder="Brief title (e.g. Deep pothole on Main Road)"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  required
+                  className="h-11 border-slate-200 focus:border-green-400 focus:ring-green-400/20"
+                />
+              </div>
+
+              {/* Location */}
+              <div className="space-y-3">
+                <Label htmlFor="location" className="text-sm font-medium text-slate-700">
+                  Location & Proximity Check *
+                </Label>
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Input
+                      id="location"
+                      placeholder="Coordinates will appear when selected on map"
+                      value={location}
+                      readOnly
+                      className="flex-1 h-11 border-slate-200 bg-slate-50"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={captureLocation}
+                        disabled={isCapturingLocation}
+                        className="flex-1 sm:flex-none h-11 border-slate-200 hover:bg-slate-50"
+                      >
+                        <MapPin className="h-4 w-4 mr-1" />
+                        <span>{isCapturingLocation ? "GPS..." : "Current Location"}</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={openMapSelector}
+                        className="flex-1 sm:flex-none h-11 border-slate-200 hover:bg-slate-50"
+                      >
+                        <MapPin className="h-4 w-4 mr-1" />
+                        <span>Select on Map</span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="address" className="text-sm font-medium text-slate-700">
+                      Address *
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="address"
+                        placeholder="Enter location address or locality"
+                        value={address}
+                        onChange={(e) => setAddress(e.target.value)}
+                        required
+                        className="h-11 pr-10 border-slate-200 focus:border-green-400 focus:ring-green-400/20"
+                      />
+                      {isGeocoding && (
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                          <Loader2 className="h-4 w-4 animate-spin text-green-500" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {showMap && (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                      <div className="p-3 bg-slate-50 border-b border-slate-200">
+                        <p className="text-sm text-slate-600 flex items-center gap-2">
+                          <MapPin className="h-4 w-4" />
+                          Click anywhere on the map to set location
+                        </p>
+                      </div>
+                      <div className="relative">
+                        <LeafletMap
+                          latitude={latitude || 28.6139}
+                          longitude={longitude || 77.209}
+                          onLocationSelect={handleLocationSelect}
+                          height="300px"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Photo Upload */}
+              <div className="space-y-2">
+                <Label htmlFor="photo" className="text-sm font-medium text-slate-700">
+                  Photo Evidence (Optional)
+                </Label>
+                <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 sm:p-6 text-center hover:border-green-300 transition-colors">
+                  {selectedImage ? (
+                    <div className="space-y-4">
+                      <img
+                        src={selectedImage}
+                        alt="Selected"
+                        className="mx-auto max-h-32 sm:max-h-48 rounded-lg shadow-sm"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setSelectedImage(null)}
+                        size="sm"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        Remove Photo
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 sm:space-y-4">
+                      <Camera className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-slate-400" />
+                      <div>
+                        <Label htmlFor="photo-upload" className="cursor-pointer">
+                          <Button type="button" variant="outline" asChild className="bg-white hover:bg-slate-50">
+                            <span>
+                              <Upload className="mr-2 h-4 w-4" />
+                              Choose Photo
+                            </span>
+                          </Button>
+                        </Label>
+                        <Input
+                          id="photo-upload"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageUpload}
+                          className="hidden"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -508,7 +589,7 @@ export default function ReportIssuePage() {
                 </Label>
                 <Textarea
                   id="description"
-                  placeholder="Describe the issue in detail. Include any relevant information that might help authorities understand and resolve the problem..."
+                  placeholder="Describe the issue in detail..."
                   rows={4}
                   required
                   value={description}
@@ -517,42 +598,15 @@ export default function ReportIssuePage() {
                 />
               </div>
 
-              {/* Contact Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="name" className="text-sm font-medium text-slate-700">
-                    Your Name *
-                  </Label>
-                  <Input 
-                    id="name" 
-                    placeholder="Full name" 
-                    required 
-                    className="h-11 border-slate-200 focus:border-green-400 focus:ring-green-400/20"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone" className="text-sm font-medium text-slate-700">
-                    Phone Number *
-                  </Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    placeholder="+91 XXXXX XXXXX"
-                    required
-                    className="h-11 border-slate-200 focus:border-green-400 focus:ring-green-400/20"
-                  />
-                </div>
-              </div>
-
               {/* Submit Button */}
               <div className="pt-4">
-                <Button 
-                  type="submit" 
-                  className="w-full h-12 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200" 
+                <Button
+                  type="submit"
+                  className="w-full h-12 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200"
                   size="lg"
                 >
                   <Send className="mr-2 h-5 w-5" />
-                  Submit Report
+                  Submit New Ticket
                 </Button>
               </div>
             </form>

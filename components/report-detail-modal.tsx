@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,8 +11,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MapPin, Calendar, Clock, User, FileText, Image as ImageIcon } from "lucide-react";
+import { MapPin, Calendar, Clock, User, FileText, Image as ImageIcon, ThumbsUp, History, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { LeafletDisplayMap } from "@/components/leaflet-display-map";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
 interface Report {
   id: string;
@@ -21,6 +23,9 @@ interface Report {
   description: string;
   category: string;
   priority: string;
+  computedPriority?: string;
+  priorityScore?: number;
+  confirmationsCount?: number;
   status: "PENDING" | "ASSIGNED" | "IN_PROGRESS" | "RESOLVED" | "REJECTED";
   address?: string | null;
   latitude?: number | null;
@@ -28,10 +33,14 @@ interface Report {
   imageUrl?: string | null;
   createdAt: string;
   updatedAt: string;
+  reportedById?: string;
   reportedBy?: {
+    id?: string;
     name: string;
     email: string;
   };
+  confirmations?: any[];
+  statusHistory?: any[];
 }
 
 interface ReportDetailModalProps {
@@ -59,11 +68,12 @@ const getStatusColor = (status: string) => {
 };
 
 const getPriorityColor = (priority: string) => {
-  switch (priority) {
+  switch (priority?.toLowerCase()) {
+    case "urgent":
     case "high":
       return "bg-red-100 text-red-800 border-red-200";
     case "medium":
-      return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      return "bg-amber-100 text-amber-800 border-amber-200";
     case "low":
       return "bg-green-100 text-green-800 border-green-200";
     default:
@@ -71,29 +81,75 @@ const getPriorityColor = (priority: string) => {
   }
 };
 
-const getStatusDescription = (status: string) => {
-  switch (status) {
-    case "PENDING":
-      return "Your report has been received and is waiting to be reviewed.";
-    case "ASSIGNED":
-      return "Your report has been assigned to a department for action.";
-    case "IN_PROGRESS":
-      return "Work is currently in progress to resolve this issue.";
-    case "RESOLVED":
-      return "This issue has been successfully resolved.";
-    case "REJECTED":
-      return "This report was rejected. Please check the reason and resubmit if needed.";
-    default:
-      return "Status information not available.";
-  }
-};
-
 export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: ReportDetailModalProps) {
-  if (!report) return null;
+  const [fullReport, setFullReport] = useState<Report | null>(report);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
+  const [confirmSuccess, setConfirmSuccess] = useState("");
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    setFullReport(report);
+    setConfirmError("");
+    setConfirmSuccess("");
+    const stored = localStorage.getItem("user");
+    if (stored) {
+      setCurrentUser(JSON.parse(stored));
+    }
+
+    if (report?.id && isOpen) {
+      fetchReportDetails(report.id);
+    }
+  }, [report, isOpen]);
+
+  const fetchReportDetails = async (id: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_BASE}/reports/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFullReport(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  if (!fullReport) return null;
+
+  const currentUserId = currentUser?.id || currentUser?.sub;
+  const isReporter = fullReport.reportedById === currentUserId || fullReport.reportedBy?.id === currentUserId;
+  const isClosed = fullReport.status === "RESOLVED" || fullReport.status === "REJECTED";
+  const hasUserConfirmed = fullReport.confirmations?.some((c) => c.userId === currentUserId);
+
+  const handleConfirm = async () => {
+    setIsConfirming(true);
+    setConfirmError("");
+    setConfirmSuccess("");
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_BASE}/reports/${fullReport.id}/confirm`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to confirm report");
+      }
+      setConfirmSuccess("Thank you! Your confirmation has been recorded.");
+      fetchReportDetails(fullReport.id);
+    } catch (err: any) {
+      setConfirmError(err.message || "Failed to confirm report");
+    } finally {
+      setIsConfirming(false);
+    }
+  };
 
   const handleTrackOnMap = () => {
     if (onTrackOnMap) {
-      onTrackOnMap(report);
+      onTrackOnMap(fullReport);
     }
     onClose();
   };
@@ -103,11 +159,11 @@ export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: Rep
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Report Details
+            <FileText className="h-5 w-5 text-green-600" />
+            Report Details & Audit History
           </DialogTitle>
           <DialogDescription>
-            Complete information about your civic issue report
+            Complete information and transparency audit log
           </DialogDescription>
         </DialogHeader>
 
@@ -116,89 +172,114 @@ export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: Rep
           <div className="space-y-4">
             <div className="flex items-start justify-between">
               <div className="space-y-2">
-                <h3 className="text-xl font-semibold">{report.title}</h3>
-                {report.complaintId && (
-                  <p className="text-sm text-muted-foreground">
-                    Report ID: #{report.complaintId}
+                <h3 className="text-xl font-semibold">{fullReport.title}</h3>
+                {fullReport.complaintId && (
+                  <p className="text-sm text-muted-foreground font-mono">
+                    ID: #{fullReport.complaintId}
                   </p>
                 )}
               </div>
-              <div className="flex flex-col gap-2">
-                <Badge className={`${getStatusColor(report.status)} border`}>
-                  {report.status.replace("_", " ")}
+              <div className="flex flex-col gap-2 items-end">
+                <Badge className={`${getStatusColor(fullReport.status)} border text-xs px-2.5 py-1`}>
+                  {fullReport.status.replace("_", " ")}
                 </Badge>
-                <Badge className={`${getPriorityColor(report.priority)} border`}>
-                  {report.priority.toUpperCase()} Priority
+                <Badge className={`${getPriorityColor(fullReport.computedPriority || fullReport.priority)} border text-xs px-2.5 py-1`}>
+                  {(fullReport.computedPriority || fullReport.priority).toUpperCase()} Priority
                 </Badge>
               </div>
             </div>
-
-            {/* Status Description */}
-            <Card className="bg-muted/50">
-              <CardContent className="pt-4">
-                <p className="text-sm text-muted-foreground">
-                  {getStatusDescription(report.status)}
-                </p>
-              </CardContent>
-            </Card>
           </div>
+
+          {/* Dynamic Crowd Confirmation & Priority Card */}
+          <Card className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-semibold text-emerald-950 flex items-center gap-2">
+                    <ThumbsUp className="h-4 w-4 text-emerald-600" />
+                    Crowd Verification & Priority Signal
+                  </h4>
+                  <p className="text-xs text-emerald-800 mt-1">
+                    {fullReport.confirmationsCount || 0} citizens confirmed this issue nearby. Dynamic Priority Score: <span className="font-bold">{fullReport.priorityScore || 0}</span>
+                  </p>
+                </div>
+
+                <Button
+                  onClick={handleConfirm}
+                  disabled={isConfirming || isReporter || isClosed || hasUserConfirmed}
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs shadow-sm"
+                >
+                  <ThumbsUp className="h-3.5 w-3.5 mr-1.5" />
+                  {hasUserConfirmed
+                    ? "Confirmed"
+                    : isReporter
+                    ? "Your Report"
+                    : isClosed
+                    ? "Issue Closed"
+                    : "Confirm Issue"}
+                </Button>
+              </div>
+
+              {confirmError && (
+                <p className="text-xs font-medium text-red-600 bg-red-50 p-2 rounded border border-red-200">
+                  {confirmError}
+                </p>
+              )}
+              {confirmSuccess && (
+                <p className="text-xs font-medium text-green-700 bg-green-100 p-2 rounded border border-green-300">
+                  {confirmSuccess}
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Description */}
           <div className="space-y-2">
-            <h4 className="font-medium flex items-center gap-2">
-              <FileText className="h-4 w-4" />
+            <h4 className="font-medium flex items-center gap-2 text-slate-800">
+              <FileText className="h-4 w-4 text-slate-600" />
               Description
             </h4>
-            <p className="text-muted-foreground">{report.description}</p>
+            <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">
+              {fullReport.description}
+            </p>
           </div>
 
           {/* Location Information */}
           <div className="space-y-2">
-            <h4 className="font-medium flex items-center gap-2">
-              <MapPin className="h-4 w-4" />
+            <h4 className="font-medium flex items-center gap-2 text-slate-800">
+              <MapPin className="h-4 w-4 text-slate-600" />
               Location
             </h4>
             <div className="space-y-3">
-              <p className="text-muted-foreground">
-                {report.address || "No address provided"}
+              <p className="text-sm text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                📍 {fullReport.address || "No address provided"}
               </p>
-              {report.latitude && report.longitude ? (
+              {fullReport.latitude && fullReport.longitude ? (
                 <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    Coordinates: {report.latitude.toFixed(6)}, {report.longitude.toFixed(6)}
-                  </p>
-                  <div className="border rounded-lg overflow-hidden">
-                    <div className="p-2 bg-muted/50 border-b">
-                      <p className="text-xs text-muted-foreground">
-                        📍 Issue location on map
-                      </p>
-                    </div>
+                  <div className="border rounded-lg overflow-hidden shadow-sm">
                     <LeafletDisplayMap
-                      latitude={report.latitude}
-                      longitude={report.longitude}
+                      latitude={fullReport.latitude}
+                      longitude={fullReport.longitude}
                       height="200px"
-                      markerTitle={report.title}
+                      markerTitle={fullReport.title}
                     />
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground italic">
-                  No location coordinates available
-                </p>
-              )}
+              ) : null}
             </div>
           </div>
 
           {/* Image */}
-          {report.imageUrl && (
+          {fullReport.imageUrl && (
             <div className="space-y-2">
-              <h4 className="font-medium flex items-center gap-2">
-                <ImageIcon className="h-4 w-4" />
-                Attached Image
+              <h4 className="font-medium flex items-center gap-2 text-slate-800">
+                <ImageIcon className="h-4 w-4 text-slate-600" />
+                Attached Photo Evidence
               </h4>
               <div className="border rounded-lg overflow-hidden">
                 <img
-                  src={report.imageUrl}
+                  src={fullReport.imageUrl}
                   alt="Report image"
                   className="w-full h-48 object-cover"
                 />
@@ -206,87 +287,51 @@ export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: Rep
             </div>
           )}
 
-          {/* Category and Priority */}
-          <div className="grid grid-cols-2 gap-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Category</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <Badge variant="outline" className="capitalize">
-                  {report.category}
-                </Badge>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Priority Level</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <Badge className={getPriorityColor(report.priority)}>
-                  {report.priority.toUpperCase()}
-                </Badge>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Timestamps */}
-          <div className="space-y-2">
-            <h4 className="font-medium flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              Timeline
+          {/* Status Audit Trail Timeline */}
+          <div className="space-y-3">
+            <h4 className="font-medium flex items-center gap-2 text-slate-800">
+              <History className="h-4 w-4 text-slate-600" />
+              Status Audit Trail & Lifecycle History
             </h4>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">Reported</p>
-                  <p className="text-muted-foreground">
-                    {new Date(report.createdAt).toLocaleString()}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">Last Updated</p>
-                  <p className="text-muted-foreground">
-                    {new Date(report.updatedAt).toLocaleString()}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Reporter Information */}
-          {report.reportedBy && (
-            <div className="space-y-2">
-              <h4 className="font-medium flex items-center gap-2">
-                <User className="h-4 w-4" />
-                Reporter Information
-              </h4>
-              <Card>
-                <CardContent className="pt-4">
-                  <div className="space-y-1">
-                    <p className="font-medium">{report.reportedBy.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {report.reportedBy.email}
-                    </p>
+            {fullReport.statusHistory && fullReport.statusHistory.length > 0 ? (
+              <div className="space-y-2 relative border-l-2 border-slate-200 ml-3 pl-4 py-1">
+                {fullReport.statusHistory.map((hist: any) => (
+                  <div key={hist.id} className="relative group">
+                    <div className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-4 ring-white" />
+                    <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-900">
+                          {hist.oldStatus} ➔ <Badge variant="outline" className="text-[10px]">{hist.newStatus}</Badge>
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(hist.createdAt).toLocaleDateString()} {new Date(hist.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <p className="text-slate-600">{hist.notes}</p>
+                      <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                        <ShieldCheck className="h-3 w-3 text-blue-600" />
+                        Changed by: {hist.changedBy?.name || "System"} ({hist.changedByRole})
+                      </div>
+                    </div>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+                ))}
+              </div>
+            ) : (
+              <div className="p-3 text-xs text-slate-500 bg-slate-50 rounded-lg border border-slate-100">
+                Initial report filed. No status changes recorded yet.
+              </div>
+            )}
+          </div>
 
           {/* Actions */}
           <div className="flex gap-2 pt-4 border-t">
-            {report.latitude && report.longitude && onTrackOnMap && (
-              <Button onClick={handleTrackOnMap} className="flex-1">
+            {fullReport.latitude && fullReport.longitude && onTrackOnMap && (
+              <Button onClick={handleTrackOnMap} className="flex-1 bg-green-600 hover:bg-green-700 text-white">
                 <MapPin className="h-4 w-4 mr-2" />
                 Track on Map
               </Button>
             )}
-            <Button variant="outline" onClick={onClose} className="flex-1">
+            <Button variant="outline" onClick={onClose} className="flex-1 border-slate-200">
               Close
             </Button>
           </div>

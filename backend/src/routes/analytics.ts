@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { PrismaClient, ComplaintStatus } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { authMiddleware } from "../middleware/auth";
 
 const prisma = new PrismaClient();
@@ -22,7 +22,7 @@ analyticsRouter.get("/overview", authMiddleware, async (req: any, res) => {
 
     // Get resolved reports
     const resolvedReports = await prisma.complaint.count({
-      where: { status: ComplaintStatus.RESOLVED },
+      where: { status: "RESOLVED" },
     });
 
     // Calculate resolution rate
@@ -30,7 +30,7 @@ analyticsRouter.get("/overview", authMiddleware, async (req: any, res) => {
 
     // Get average resolution time (in days)
     const resolvedComplaints = await prisma.complaint.findMany({
-      where: { status: ComplaintStatus.RESOLVED },
+      where: { status: "RESOLVED" },
       select: { createdAt: true, updatedAt: true },
     });
 
@@ -75,12 +75,12 @@ analyticsRouter.get("/overview", authMiddleware, async (req: any, res) => {
           select: { status: true, createdAt: true, updatedAt: true },
         });
 
-        const resolved = deptReports.filter(r => r.status === ComplaintStatus.RESOLVED).length;
+        const resolved = deptReports.filter(r => r.status === "RESOLVED").length;
         const resolutionRate = deptReports.length > 0 ? (resolved / deptReports.length) * 100 : 0;
 
         const avgResponseTime = resolved > 0
           ? deptReports
-              .filter(r => r.status === ComplaintStatus.RESOLVED)
+              .filter(r => r.status === "RESOLVED")
               .reduce((sum, r) => {
                 const time = r.updatedAt.getTime() - r.createdAt.getTime();
                 return sum + time;
@@ -124,7 +124,7 @@ analyticsRouter.get("/overview", authMiddleware, async (req: any, res) => {
       by: ["updatedAt"],
       _count: { updatedAt: true },
       where: {
-        status: ComplaintStatus.RESOLVED,
+        status: "RESOLVED",
         updatedAt: { gte: sixMonthsAgo },
       },
       orderBy: { updatedAt: "asc" },
@@ -210,9 +210,9 @@ analyticsRouter.get("/detailed", authMiddleware, async (req: any, res) => {
 
     // Calculate various metrics
     const totalReports = reports.length;
-    const resolvedReports = reports.filter(r => r.status === ComplaintStatus.RESOLVED).length;
-    const pendingReports = reports.filter(r => r.status === ComplaintStatus.PENDING).length;
-    const inProgressReports = reports.filter(r => r.status === ComplaintStatus.IN_PROGRESS).length;
+    const resolvedReports = reports.filter(r => r.status === "RESOLVED").length;
+    const pendingReports = reports.filter(r => r.status === "PENDING").length;
+    const inProgressReports = reports.filter(r => r.status === "IN_PROGRESS").length;
 
     // Priority distribution
     const priorityDistribution = reports.reduce((acc, report) => {

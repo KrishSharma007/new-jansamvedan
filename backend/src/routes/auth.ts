@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { PrismaClient, UserRole } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { signJwt } from "../utils/jwt";
 import { authMiddleware } from "../middleware/auth";
+import { sendNotification } from "./notifications";
 
 const prisma = new PrismaClient();
 export const authRouter = Router();
@@ -19,9 +20,11 @@ authRouter.post("/register", async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     
-    // Determine user role
-    const userRole = role === "NGO" ? UserRole.NGO : UserRole.CITIZEN;
-    
+    // Determine user role and default verification status
+    const isNgo = role === "NGO";
+    const userRole = isNgo ? "NGO" : "CITIZEN";
+    const ngoStatus = isNgo ? "PENDING" : "VERIFIED";
+
     // Create user with appropriate role and role-specific fields
     const user = await prisma.user.create({
       data: {
@@ -31,12 +34,30 @@ authRouter.post("/register", async (req, res) => {
         phone,
         address,
         role: userRole,
+        ngoStatus,
         // Role-specific fields
-        organization: userRole === UserRole.NGO ? organization : null,
-        serviceArea: userRole === UserRole.NGO ? serviceArea : null,
+        organization: isNgo ? organization : null,
+        serviceArea: isNgo ? serviceArea : null,
       },
-      select: { id: true, name: true, email: true, role: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        ngoStatus: true,
+        organization: true,
+        serviceArea: true,
+      },
     });
+
+    if (isNgo) {
+      // Notify user about pending verification
+      await sendNotification({
+        userId: user.id,
+        title: "NGO Account Created",
+        message: "Your NGO registration is pending admin approval. You will receive access once verified.",
+      });
+    }
 
     const token = signJwt({ sub: user.id, role: user.role });
     return res.status(201).json({ token, user });
@@ -58,7 +79,7 @@ authRouter.post("/login", async (req, res) => {
     });
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
-    // For all users, use bcrypt comparison since passwords are hashed
+    // Compare passwords
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
@@ -70,6 +91,9 @@ authRouter.post("/login", async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        ngoStatus: user.ngoStatus,
+        organization: user.organization,
+        serviceArea: user.serviceArea,
       },
     });
   } catch (e) {
@@ -78,15 +102,28 @@ authRouter.post("/login", async (req, res) => {
   }
 });
 
-authRouter.get("/me", async (req, res) => {
+authRouter.get("/me", authMiddleware, async (req: any, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer "))
-      return res.status(401).json({ error: "Unauthorized" });
-    const token = authHeader.substring("Bearer ".length);
-    // We could verify, but the middleware can be added on server.ts for all /me
-    // Kept here simple: decode via verify in middleware if applied there
-    return res.status(200).json({ ok: true });
+    const userId = req.user?.sub;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        phone: true,
+        address: true,
+        ngoStatus: true,
+        organization: true,
+        serviceArea: true,
+      },
+    });
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+    return res.status(200).json({ user });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "Internal server error" });
@@ -109,6 +146,9 @@ authRouter.get("/users", authMiddleware, async (req: any, res) => {
         name: true,
         email: true,
         role: true,
+        ngoStatus: true,
+        organization: true,
+        serviceArea: true,
         createdAt: true,
         updatedAt: true,
         _count: {
@@ -127,13 +167,96 @@ authRouter.get("/users", authMiddleware, async (req: any, res) => {
   }
 });
 
+// Get all NGOs for Admin management
+authRouter.get("/ngos", authMiddleware, async (req: any, res) => {
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: req.user.sub },
+    });
+    if (!admin || admin.role !== "ADMIN") {
+      return res.status(403).json({ error: "Only admins can manage NGOs" });
+    }
+
+    const ngos = await prisma.user.findMany({
+      where: { role: "NGO" },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        organization: true,
+        serviceArea: true,
+        ngoStatus: true,
+        createdAt: true,
+        _count: {
+          select: {
+            helpingWith: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.json(ngos);
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Admin endpoint to Approve/Reject NGO application
+authRouter.patch("/ngos/:id/status", authMiddleware, async (req: any, res) => {
+  try {
+    const admin = await prisma.user.findUnique({
+      where: { id: req.user.sub },
+    });
+    if (!admin || admin.role !== "ADMIN") {
+      return res.status(403).json({ error: "Only admins can update NGO status" });
+    }
+
+    const { id } = req.params;
+    const { ngoStatus } = req.body || {};
+
+    if (!ngoStatus || !["VERIFIED", "PENDING", "REJECTED"].includes(ngoStatus)) {
+      return res.status(400).json({ error: "Invalid NGO status" });
+    }
+
+    const updatedNgo = await prisma.user.update({
+      where: { id, role: "NGO" },
+      data: { ngoStatus },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        organization: true,
+        ngoStatus: true,
+      },
+    });
+
+    // Notify the NGO about approval status change
+    await sendNotification({
+      userId: updatedNgo.id,
+      title: `NGO Account ${ngoStatus}`,
+      message:
+        ngoStatus === "VERIFIED"
+          ? "Congratulations! Your NGO registration has been verified by administrators. You can now act on community reports."
+          : `Your NGO application status has been set to ${ngoStatus}.`,
+    });
+
+    return res.json(updatedNgo);
+  } catch (e: any) {
+    if (e?.code === "P2025") return res.status(404).json({ error: "NGO not found" });
+    console.error(e);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Update user profile
 authRouter.put("/profile", authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user.sub;
     const { name, email, phone, address, organization, serviceArea } = req.body || {};
     
-    // Check if email is being changed and if it's already in use
     if (email) {
       const existingUser = await prisma.user.findUnique({
         where: { email },
@@ -143,7 +266,6 @@ authRouter.put("/profile", authMiddleware, async (req: any, res) => {
       }
     }
 
-    // Get current user to check role
     const currentUser = await prisma.user.findUnique({
       where: { id: userId },
     });
@@ -152,20 +274,17 @@ authRouter.put("/profile", authMiddleware, async (req: any, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Prepare update data
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
     if (email !== undefined) updateData.email = email;
     if (phone !== undefined) updateData.phone = phone;
     if (address !== undefined) updateData.address = address;
     
-    // Only allow organization and serviceArea updates for NGO users
-    if (currentUser.role === UserRole.NGO) {
+    if (currentUser.role === "NGO") {
       if (organization !== undefined) updateData.organization = organization;
       if (serviceArea !== undefined) updateData.serviceArea = serviceArea;
     }
 
-    // Update user
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: updateData,
@@ -176,6 +295,7 @@ authRouter.put("/profile", authMiddleware, async (req: any, res) => {
         phone: true,
         address: true,
         role: true,
+        ngoStatus: true,
         organization: true,
         serviceArea: true,
       },
@@ -188,10 +308,8 @@ authRouter.put("/profile", authMiddleware, async (req: any, res) => {
   }
 });
 
-// Stateless logout endpoint for client convenience
 authRouter.post("/logout", async (_req, res) => {
   try {
-    // JWT is stateless; client should delete token. Provide a consistent response.
     return res.status(200).json({ success: true });
   } catch (e) {
     console.error(e);

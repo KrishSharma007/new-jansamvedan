@@ -1,74 +1,115 @@
 // Datasource
- datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 // Generator
- generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "windows", "debian-openssl-3.0.x"]
-}
-
-// Enums
- enum UserRole {
-  CITIZEN
-  ADMIN
-  NGO
-}
-
-enum ComplaintStatus {
-  PENDING
-  ASSIGNED
-  IN_PROGRESS
-  RESOLVED
-  REJECTED
+generator client {
+  provider = "prisma-client-js"
 }
 
 // Models
- model User {
-  id            String      @id @default(cuid())
-  name          String
-  email         String      @unique
-  passwordHash  String
-  phone         String?
-  address       String?
-  role          UserRole    @default(CITIZEN)
+model User {
+  id                String                   @id @default(cuid())
+  name              String
+  email             String                   @unique
+  passwordHash      String
+  phone             String?
+  address           String?
+  role              String                   @default("CITIZEN") // CITIZEN, ADMIN, NGO
+  ngoStatus         String                   @default("VERIFIED") // VERIFIED, PENDING, REJECTED
   
   // Role-specific fields
-  department    String?     // For ADMIN users
-  organization  String?     // For NGO users
-  serviceArea   String?     // For NGO users
+  department        String?                  // For ADMIN users
+  organization      String?                  // For NGO users
+  serviceArea       String?                  // For NGO users
   
-  complaints    Complaint[]
-  helpingWith   ComplaintHelper[]
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
- }
+  complaints        Complaint[]
+  helpingWith       ComplaintHelper[]
+  confirmations     ComplaintConfirmation[]
+  statusChangesMade ComplaintStatusHistory[]
+  notifications     Notification[]
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+}
 
- model Complaint {
-  id             String           @id @default(cuid())
-  complaintId    String           @unique // human-readable identifier like CR2024XXXX
-  title          String
-  description    String
-  category       String
-  priority       String
-  status         ComplaintStatus  @default(PENDING)
-  latitude       Float?
-  longitude      Float?
-  address        String?
-  imageUrl       String?
-  reportedBy     User             @relation(fields: [reportedById], references: [id])
-  reportedById   String
-  assignedDept   String?
-  helpers        ComplaintHelper[]
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+model Complaint {
+  id                 String                  @id @default(cuid())
+  complaintId        String                  @unique // human-readable identifier like CR2024XXXX
+  title              String
+  description        String
+  category           String
+  priority           String
+  confirmationsCount Int                     @default(0)
+  status             String                  @default("PENDING") // PENDING, ASSIGNED, IN_PROGRESS, RESOLVED, REJECTED
+  latitude           Float?
+  longitude          Float?
+  address            String?
+  imageUrl           String?
+  reportedBy         User                    @relation(fields: [reportedById], references: [id])
+  reportedById       String
+  assignedDept       String?
+  helpers            ComplaintHelper[]
+  confirmations      ComplaintConfirmation[]
+  statusHistory      ComplaintStatusHistory[]
+  notifications      Notification[]
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
 
   @@index([status])
   @@index([category])
   @@index([reportedById])
- }
+}
+
+// Track citizen confirmations/upvotes for duplicate or existing complaints
+model ComplaintConfirmation {
+  id          String    @id @default(cuid())
+  complaintId String
+  userId      String
+  createdAt   DateTime  @default(now())
+
+  complaint   Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([complaintId, userId]) // Prevent duplicate confirms by same user
+  @@index([complaintId])
+  @@index([userId])
+}
+
+// Track status change audit log for accountability
+model ComplaintStatusHistory {
+  id            String    @id @default(cuid())
+  complaintId   String
+  oldStatus     String?
+  newStatus     String
+  changedById   String
+  changedByRole String
+  notes         String?
+  createdAt     DateTime  @default(now())
+
+  complaint     Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  changedBy     User      @relation(fields: [changedById], references: [id], onDelete: Cascade)
+
+  @@index([complaintId])
+  @@index([changedById])
+}
+
+// User Notification log
+model Notification {
+  id          String    @id @default(cuid())
+  userId      String
+  complaintId String?
+  title       String
+  message     String
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  complaint   Complaint? @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+}
 
 // Track which NGOs/Volunteers are helping with which complaints
 model ComplaintHelper {
