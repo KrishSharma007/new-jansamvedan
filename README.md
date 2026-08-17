@@ -30,7 +30,12 @@ npm install
 cd backend && npm install && cd ..
 ```
 
-2. Start the application:
+2. **First-time setup** — starts Docker, syncs schema, and seeds demo data:
+```bash
+npm run setup
+```
+
+3. **Start the app** (no seeding — just starts servers):
 ```bash
 npm start
 ```

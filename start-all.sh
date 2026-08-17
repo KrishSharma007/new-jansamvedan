@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
 
 echo "================================================================="
-echo "⚡ Starting JanSamvedan (Lightweight Fast Local Mode)..."
+echo "⚡ Starting JanSamvedan..."
 echo "================================================================="
 
-# 1. Start PostgreSQL Docker Container (Instant, <2s)
+# 1. Start PostgreSQL Docker Container
 echo ""
-echo "🐘 [1/3] Starting Local PostgreSQL container..."
+echo "🐘 [1/2] Starting Local PostgreSQL container..."
 docker compose up -d
 
-# 2. Push Schema & Initialize Seed Data if Empty
+# 2. Sync Prisma Schema (no seeding)
 echo ""
-echo "🌱 [2/3] Checking DB Schema & Seed Status..."
+echo "📐 [2/2] Syncing DB schema..."
 cd backend || exit
 npx prisma db push --skip-generate >/dev/null 2>&1
-npx ts-node prisma/seed.ts
 cd ..
 
-# 3. Print Info Banner & Launch Servers with Concurrently
+# 3. Print Info Banner & Launch Servers
 echo ""
 echo "================================================================="
 echo "✅ Ready! Launching Backend & Frontend Dev Servers..."
@@ -25,6 +24,9 @@ echo "================================================================="
 echo "  🌐 Frontend UI:  http://localhost:3000"
 echo "  ⚙️ Backend API:  http://localhost:4000"
 echo "  🐘 PostgreSQL:   localhost:5433"
+echo ""
+echo "  💡 First time? Run:  npm run setup"
+echo "  🔄 Reset data?  Run:  npm run db:reset"
 echo "================================================================="
 echo ""
 
