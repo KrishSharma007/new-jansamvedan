@@ -116,8 +116,15 @@ reportsRouter.post(
         dataUrl,
       } = req.body || {};
       
-      if (!description) {
+      if (!description || description.trim().length === 0) {
         return res.status(400).json({ error: "Description is required" });
+      }
+
+      // Mandatory Photo Validation
+      if ((!dataUrl || dataUrl.trim().length < 50) && (!imageUrl || imageUrl.trim().length < 5)) {
+        return res.status(400).json({
+          error: "Photo evidence is mandatory for all reports. Please capture or upload a clear photo of the civic issue.",
+        });
       }
 
       if (
@@ -144,21 +151,39 @@ reportsRouter.post(
 
       let category = "Other";
       let priority = "medium";
-      let title = "Civic Issue";
+      let title = "Civic Hazard Report";
       let visualCaption = "";
 
       const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 
-      // 1. Step 1: Qwen3-VL Vision Model (Server-side image analysis)
+      // ── Unified Single-Pass Qwen3-VL Multimodal Vision + Anti-Spam Pipeline ──
       if (dataUrl && dataUrl.length > 50) {
         try {
           const base64Data = dataUrl.includes("base64,") ? dataUrl.split("base64,")[1] : dataUrl;
-          console.log("--> Step 1: Running Server-Side Qwen3-VL Vision Analysis...");
-          const visionPrompt = `Analyze this civic issue photo. Return ONLY a valid JSON object:
+          console.log("--> Running Unified Qwen3-VL Vision + Anti-Spam Analysis...");
+
+          const visionPrompt = `You are JanSamvedan AI, an expert municipal civic hazard inspector and anti-spam validator.
+Analyze the user's uploaded photo along with their textual notes: "${description}".
+
+Tasks:
+1. Anti-Spam Check: Is this a genuine civic issue, public infrastructure damage, or environmental hazard? If it is a selfie, personal portrait, animal photo, meme, vulgar image, promotional ad, or completely black/blurry, set "isSpam": true with a short "spamReason".
+2. Categorization: Choose the single most accurate category from:
+   ["Pothole", "Garbage Collection", "Street Light", "Water Supply", "Drainage", "Traffic Signal", "Park Maintenance", "Encroachment", "Tree Hazard", "Other"]
+3. Title: Create a concise, title-cased headline (max 5 words, e.g., "Deep Pothole On Road").
+4. Priority: Evaluate safety severity based on visual damage:
+   - "high": Road craters, open manholes, exposed live wires, major water pipeline burst, severe sewage overflow, fallen trees.
+   - "medium": Overflowing garbage dump, broken street light, damaged park bench, minor leakage.
+   - "low": Minor cosmetic damage, small roadside litter.
+5. Visual Summary: Write 1 clear sentence describing the exact issue and hazard shown.
+
+Respond ONLY with a valid JSON object:
 {
-  "caption": "Concise description of the civic damage or issue in one sentence",
-  "category": "Pothole" | "Garbage Collection" | "Street Light" | "Water Supply" | "Drainage" | "Traffic Signal" | "Park Maintenance" | "Other",
-  "title": "Short descriptive title (max 5 words)"
+  "isSpam": false,
+  "spamReason": null,
+  "category": "Pothole",
+  "title": "Deep Pothole On Road",
+  "priority": "high",
+  "visualSummary": "A large pothole in the asphalt with accumulated water creating a road hazard."
 }`;
 
           const visionRes = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
@@ -169,7 +194,7 @@ reportsRouter.post(
               prompt: visionPrompt,
               images: [base64Data],
               stream: false,
-              options: { temperature: 0.1, num_predict: 200, num_ctx: 2048 },
+              options: { temperature: 0.1, num_predict: 250, num_ctx: 2048 },
             }),
           }).catch(() => null);
 
@@ -179,79 +204,38 @@ reportsRouter.post(
             const jsonMatch = rawV.match(/\{[\s\S]*?\}/);
             if (jsonMatch) {
               try {
-                const parsedV = JSON.parse(jsonMatch[0]);
-                if (parsedV.caption) visualCaption = parsedV.caption;
-                if (parsedV.category && parsedV.category !== "Other") category = parsedV.category;
-                if (parsedV.title && parsedV.title !== "Civic Issue") title = parsedV.title;
-                console.log("Qwen3-VL Vision AI Extracted:", { visualCaption, category, title });
+                const parsed = JSON.parse(jsonMatch[0]);
+                console.log("Qwen3-VL Multimodal Result:", parsed);
+
+                // Anti-spam filter
+                if (parsed.isSpam === true) {
+                  return res.status(400).json({
+                    error: `Photo rejected by AI safety filter: ${parsed.spamReason || "The image does not show a valid civic issue or public infrastructure hazard."}`,
+                    isSpam: true,
+                  });
+                }
+
+                if (parsed.category && parsed.category !== "Other") category = parsed.category;
+                if (parsed.title && parsed.title !== "Civic Issue") title = parsed.title;
+                if (parsed.priority && ["low", "medium", "high"].includes(parsed.priority)) priority = parsed.priority;
+                if (parsed.visualSummary) visualCaption = parsed.visualSummary;
               } catch (e) {
-                visualCaption = rawV;
+                console.warn("Qwen3-VL JSON parse error:", e);
               }
-            } else {
-              visualCaption = rawV;
             }
           }
         } catch (mErr) {
-          console.warn("Server Qwen3-VL vision analysis skipped:", mErr);
+          console.warn("Server Qwen3-VL analysis skipped:", mErr);
         }
       }
 
-      // 2. Step 2: Multi-Modal Synthesizer with DeepSeek-R1 (Server-side LLM)
-      try {
-        console.log("--> Step 2: Running Server-Side DeepSeek Multi-Modal Synthesis...");
-        const textPrompt = `You are a civic issue classification AI on the municipal server.
-Visual finding from camera: "${visualCaption}"
-User reported notes: "${description}"
-
-Determine the exact category and title. Respond ONLY with a valid JSON object:
-{
-  "category": "Pothole" | "Garbage Collection" | "Street Light" | "Water Supply" | "Drainage" | "Traffic Signal" | "Park Maintenance" | "Other",
-  "title": "Short descriptive title (max 5 words)"
-}`;
-
-        const structRes = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "deepseek-r1:1.5b",
-            prompt: textPrompt,
-            stream: false,
-            options: { temperature: 0.1, num_predict: 600, num_ctx: 2048 },
-          }),
-        }).catch(() => null);
-
-        if (structRes && structRes.ok) {
-          const sData = await structRes.json();
-          const rawStruct = sData.response || sData.thinking || "";
-          console.log("DeepSeek Output Received (Length:", rawStruct.length, ")");
-
-          const strippedReasoning = rawStruct.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-          const jsonMatch = strippedReasoning.match(/\{[\s\S]*?\}/) || rawStruct.match(/\{[\s\S]*?\}/);
-
-          if (jsonMatch) {
-            try {
-              const aiResult = JSON.parse(jsonMatch[0]);
-              if (aiResult.category && aiResult.category !== "Other") category = aiResult.category;
-              if (aiResult.title && aiResult.title !== "Civic Issue") title = aiResult.title;
-              console.log("Server AI Multimodal Synthesis Result:", { category, title });
-            } catch (pErr) {
-              console.warn("AI JSON parse error:", pErr);
-            }
-          }
-        }
-      } catch (aiErr) {
-        console.warn("Server Ollama AI step error:", aiErr);
-      }
-
-      // Default title if still empty (without keyword heuristics)
-      if (!title || title === "Civic Issue") {
+      // Fallback title formatting if needed
+      if (!title || title === "Civic Hazard Report") {
         if (category && category !== "Other") {
-          title = `${category} Report`;
+          title = `${category} Hazard`;
         } else if (description && description.trim().length > 0) {
           const words = description.trim().split(/\s+/).slice(0, 5);
           title = words.map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-        } else {
-          title = "Civic Hazard Report";
         }
       }
 

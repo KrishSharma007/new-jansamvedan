@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "ts-node src/server.ts",
+    "dev": "npx --yes tsx watch src/server.ts",
     "start": "node dist/server.js",
     "build": "tsc",
     "prisma:migrate": "prisma migrate dev",

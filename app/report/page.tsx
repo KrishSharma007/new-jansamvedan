@@ -407,7 +407,79 @@ export default function ReportIssuePage() {
                 </div>
               )}
               
-              {/* Location */}
+              {/* Step 1: Mandatory Photo Evidence */}
+              <div className="space-y-2.5 p-4 rounded-2xl bg-emerald-50/50 border-2 border-dashed border-emerald-300 hover:border-emerald-500 transition-colors">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="photo" className="text-sm font-bold text-emerald-950 flex items-center gap-2">
+                    <Camera className="h-4 w-4 text-emerald-600" />
+                    <span>Photo Evidence</span>
+                    <Badge className="bg-emerald-600 text-white text-[10px] uppercase font-semibold tracking-wider">
+                      Mandatory *
+                    </Badge>
+                  </Label>
+                  <span className="text-xs text-emerald-700 font-medium">Required for Qwen3-VL Vision AI</span>
+                </div>
+
+                {selectedImage ? (
+                  <div className="space-y-3 pt-2">
+                    <div className="relative mx-auto max-w-sm rounded-xl overflow-hidden shadow-md border border-emerald-200">
+                      <img
+                        src={selectedImage}
+                        alt="Selected Civic Issue"
+                        className="w-full max-h-56 object-cover"
+                      />
+                      <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm text-white text-[11px] px-2.5 py-1 rounded-full font-medium">
+                        ✓ Photo Attached
+                      </div>
+                    </div>
+                    <div className="flex justify-center">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setSelectedImage(null)}
+                        size="sm"
+                        className="text-red-600 border-red-200 hover:text-red-700 hover:bg-red-50"
+                      >
+                        Retake / Change Photo
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3 py-4 text-center">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+                      <Camera className="h-6 w-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-slate-800">
+                        Upload or Capture Clear Photo Evidence
+                      </p>
+                      <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                        Qwen3-VL multimodal AI requires a photo to classify the issue and prevent spam.
+                      </p>
+                    </div>
+                    <div>
+                      <Label htmlFor="photo-upload" className="cursor-pointer inline-block">
+                        <Button type="button" variant="outline" asChild className="bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-50">
+                          <span>
+                            <Upload className="mr-2 h-4 w-4 text-emerald-600" />
+                            Select / Take Photo *
+                          </span>
+                        </Button>
+                      </Label>
+                      <Input
+                        id="photo-upload"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2: Location */}
               <div className="space-y-3">
                 <Label htmlFor="location" className="text-sm font-medium text-slate-700">
                   Location & Proximity Check *
@@ -486,64 +558,15 @@ export default function ReportIssuePage() {
                 </div>
               </div>
 
-              {/* Photo Upload */}
-              <div className="space-y-2">
-                <Label htmlFor="photo" className="text-sm font-medium text-slate-700">
-                  Photo Evidence (Required for AI Analysis) *
-                </Label>
-                <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 sm:p-6 text-center hover:border-green-300 transition-colors">
-                  {selectedImage ? (
-                    <div className="space-y-4">
-                      <img
-                        src={selectedImage}
-                        alt="Selected"
-                        className="mx-auto max-h-32 sm:max-h-48 rounded-lg shadow-sm"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setSelectedImage(null)}
-                        size="sm"
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        Remove Photo
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 sm:space-y-4">
-                      <Camera className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-slate-400" />
-                      <div>
-                        <Label htmlFor="photo-upload" className="cursor-pointer">
-                          <Button type="button" variant="outline" asChild className="bg-white hover:bg-slate-50">
-                            <span>
-                              <Upload className="mr-2 h-4 w-4" />
-                              Choose Photo
-                            </span>
-                          </Button>
-                        </Label>
-                        <Input
-                          id="photo-upload"
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          className="hidden"
-                          required
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Description */}
+              {/* Step 3: Description */}
               <div className="space-y-2">
                 <Label htmlFor="description" className="text-sm font-medium text-slate-700">
-                  Description *
+                  Description Notes *
                 </Label>
                 <Textarea
                   id="description"
-                  placeholder="Describe the issue in detail..."
-                  rows={4}
+                  placeholder="Describe the issue, specific landmarks, or damage details..."
+                  rows={3}
                   required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -584,23 +607,23 @@ export default function ReportIssuePage() {
                 <Button
                   type="submit"
                   disabled={isAnalyzing || !selectedImage}
-                  className="w-full h-12 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-70"
+                  className="w-full h-12 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-60"
                   size="lg"
                 >
                   {isAnalyzing ? (
                     <>
                       <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                      Server AI is analyzing (Qwen-VL & DeepSeek)...
+                      Inspecting Photo with Qwen3-VL Vision AI...
                     </>
                   ) : (
                     <>
                       <Send className="mr-2 h-5 w-5" />
-                      Submit New Ticket
+                      Submit Report with Qwen-VL AI
                     </>
                   )}
                 </Button>
                 <p className="text-[11px] text-center text-slate-500">
-                  ⚡ Multimodal AI categorization runs securely on the municipal server with zero load on your device.
+                  ⚡ Single-pass Qwen3-VL Vision AI inspects photo authenticity, screens spam & categorizes issue with 0 client load.
                 </p>
               </div>
             </form>
