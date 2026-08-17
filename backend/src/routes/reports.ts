@@ -132,6 +132,16 @@ reportsRouter.post(
           .json({ error: "Address is required when coordinates are provided" });
       }
 
+      // Verify user exists in database to prevent foreign key constraint violation
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.sub },
+      });
+      if (!user) {
+        return res.status(401).json({
+          error: "Session expired or user account not found. Please log in again.",
+        });
+      }
+
       let category = "Other";
       let priority = "medium";
       let title = "Civic Issue";
@@ -139,46 +149,65 @@ reportsRouter.post(
 
       const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 
-      // 1. Step 1: Qwen3-VL Vision Model (only if image dataUrl is supplied)
+      // 1. Step 1: Qwen3-VL Vision Model (Server-side image analysis)
       if (dataUrl && dataUrl.length > 50) {
         try {
           const base64Data = dataUrl.includes("base64,") ? dataUrl.split("base64,")[1] : dataUrl;
-          console.log("--> Step 1: Running Qwen3-VL Vision Analysis...");
+          console.log("--> Step 1: Running Server-Side Qwen3-VL Vision Analysis...");
+          const visionPrompt = `Analyze this civic issue photo. Return ONLY a valid JSON object:
+{
+  "caption": "Concise description of the civic damage or issue in one sentence",
+  "category": "Pothole" | "Garbage Collection" | "Street Light" | "Water Supply" | "Drainage" | "Traffic Signal" | "Park Maintenance" | "Other",
+  "title": "Short descriptive title (max 5 words)"
+}`;
+
           const visionRes = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               model: "qwen3-vl:2b-instruct-q4_K_M",
-              prompt: "Describe what civic issue, hazard, or damage is visible in this image in one concise sentence. /no_think",
+              prompt: visionPrompt,
               images: [base64Data],
               stream: false,
-              options: { temperature: 0.1, num_predict: 80, num_ctx: 2048 }
+              options: { temperature: 0.1, num_predict: 200, num_ctx: 2048 },
             }),
           }).catch(() => null);
 
           if (visionRes && visionRes.ok) {
             const vData = await visionRes.json();
-            visualCaption = (vData.response || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-            console.log("Qwen3-VL Visual Finding:", visualCaption);
+            const rawV = (vData.response || "").replace(/```json|```/gi, "").trim();
+            const jsonMatch = rawV.match(/\{[\s\S]*?\}/);
+            if (jsonMatch) {
+              try {
+                const parsedV = JSON.parse(jsonMatch[0]);
+                if (parsedV.caption) visualCaption = parsedV.caption;
+                if (parsedV.category && parsedV.category !== "Other") category = parsedV.category;
+                if (parsedV.title && parsedV.title !== "Civic Issue") title = parsedV.title;
+                console.log("Qwen3-VL Vision AI Extracted:", { visualCaption, category, title });
+              } catch (e) {
+                visualCaption = rawV;
+              }
+            } else {
+              visualCaption = rawV;
+            }
           }
         } catch (mErr) {
-          console.warn("Qwen3-VL vision analysis skipped:", mErr);
+          console.warn("Server Qwen3-VL vision analysis skipped:", mErr);
         }
       }
 
-      // 2. Step 2: Multi-Modal Synthesizer & Categorizer (Runs ALWAYS)
+      // 2. Step 2: Multi-Modal Synthesizer with DeepSeek-R1 (Server-side LLM)
       try {
-        console.log("--> Step 2: Synthesizing Title & Category from Multimodal Input...");
-        const textPrompt = `You are a civic issue categorizer.
-Visual finding: "${visualCaption}"
-User description: "${description}"
+        console.log("--> Step 2: Running Server-Side DeepSeek Multi-Modal Synthesis...");
+        const textPrompt = `You are a civic issue classification AI on the municipal server.
+Visual finding from camera: "${visualCaption}"
+User reported notes: "${description}"
 
-Synthesize this info and respond ONLY with a valid JSON object:
+Determine the exact category and title. Respond ONLY with a valid JSON object:
 {
   "category": "Pothole" | "Garbage Collection" | "Street Light" | "Water Supply" | "Drainage" | "Traffic Signal" | "Park Maintenance" | "Other",
   "title": "Short descriptive title (max 5 words)"
-}
-Do not include any markdown formatting, backticks, or extra text. Just the JSON object.`;
+}`;
 
         const structRes = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
           method: "POST",
@@ -187,53 +216,42 @@ Do not include any markdown formatting, backticks, or extra text. Just the JSON 
             model: "deepseek-r1:1.5b",
             prompt: textPrompt,
             stream: false,
-            options: { temperature: 0.1, num_predict: 250, num_ctx: 2048 }
+            options: { temperature: 0.1, num_predict: 600, num_ctx: 2048 },
           }),
         }).catch(() => null);
 
         if (structRes && structRes.ok) {
           const sData = await structRes.json();
-          let rawStruct = sData.response || "";
-          console.log("DeepSeek Raw Output:", rawStruct);
+          const rawStruct = sData.response || sData.thinking || "";
+          console.log("DeepSeek Output Received (Length:", rawStruct.length, ")");
 
           const strippedReasoning = rawStruct.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-          const jsonMatch = strippedReasoning.match(/\{[\s\S]*?\}/);
-          const targetJsonStr = jsonMatch ? jsonMatch[0] : strippedReasoning;
+          const jsonMatch = strippedReasoning.match(/\{[\s\S]*?\}/) || rawStruct.match(/\{[\s\S]*?\}/);
 
-          try {
-            const aiResult = JSON.parse(targetJsonStr);
-            if (aiResult.category && aiResult.category !== "Other") category = aiResult.category;
-            if (aiResult.title && aiResult.title !== "Civic Issue") title = aiResult.title;
-            console.log("AI Multimodal Extracted Result:", { category, title });
-          } catch (pErr) {
-            console.warn("DeepSeek JSON parse failed, falling back to keyword extraction.");
+          if (jsonMatch) {
+            try {
+              const aiResult = JSON.parse(jsonMatch[0]);
+              if (aiResult.category && aiResult.category !== "Other") category = aiResult.category;
+              if (aiResult.title && aiResult.title !== "Civic Issue") title = aiResult.title;
+              console.log("Server AI Multimodal Synthesis Result:", { category, title });
+            } catch (pErr) {
+              console.warn("AI JSON parse error:", pErr);
+            }
           }
         }
       } catch (aiErr) {
-        console.warn("Ollama AI step error:", aiErr);
+        console.warn("Server Ollama AI step error:", aiErr);
       }
 
-      // 3. Fallback Keyword & Title Extraction (Guarantees placeholder is ALWAYS replaced!)
-      const combinedText = `${visualCaption} ${description}`.toLowerCase();
-      if (!category || category === "Other") {
-        if (combinedText.includes("pothole") || combinedText.includes("road") || combinedText.includes("crack") || combinedText.includes("asphalt")) category = "Pothole";
-        else if (combinedText.includes("garbage") || combinedText.includes("trash") || combinedText.includes("waste") || combinedText.includes("dump")) category = "Garbage Collection";
-        else if (combinedText.includes("light") || combinedText.includes("lamp") || combinedText.includes("dark") || combinedText.includes("bulb")) category = "Street Light";
-        else if (combinedText.includes("water") || combinedText.includes("leak") || combinedText.includes("pipe") || combinedText.includes("overflow")) category = "Water Supply";
-        else if (combinedText.includes("drain") || combinedText.includes("sewage") || combinedText.includes("gutter") || combinedText.includes("flood")) category = "Drainage";
-        else if (combinedText.includes("traffic") || combinedText.includes("signal")) category = "Traffic Signal";
-        else if (combinedText.includes("park") || combinedText.includes("tree") || combinedText.includes("garden") || combinedText.includes("bench")) category = "Park Maintenance";
-      }
-
+      // Default title if still empty (without keyword heuristics)
       if (!title || title === "Civic Issue") {
-        if (visualCaption && visualCaption.length > 5) {
-          title = visualCaption.split(" ").slice(0, 5).join(" ");
-        } else if (category && category !== "Other") {
-          title = `${category} Hazard`;
+        if (category && category !== "Other") {
+          title = `${category} Report`;
+        } else if (description && description.trim().length > 0) {
+          const words = description.trim().split(/\s+/).slice(0, 5);
+          title = words.map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
         } else {
-          // Capitalize first 4 meaningful words from description
-          const words = (description || "").split(/\s+/).filter((w: string) => w.length > 2).slice(0, 4);
-          title = words.length > 0 ? words.map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") : "Civic Issue Report";
+          title = "Civic Hazard Report";
         }
       }
 

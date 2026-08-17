@@ -253,11 +253,17 @@ export default function ReportIssuePage() {
           longitude,
           address,
           imageUrl,
-          dataUrl: selectedImage, // Pass base64 for AI analysis
+          dataUrl: selectedImage, // Pass base64 for server AI analysis
         }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({} as any));
+        if (res.status === 401) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          router.replace("/login");
+          throw new Error("Session expired. Please log in again.");
+        }
         throw new Error(data.error || "Failed to submit report. AI analysis may have timed out.");
       }
 
@@ -574,7 +580,7 @@ export default function ReportIssuePage() {
               </div>
 
               {/* Submit Button */}
-              <div className="pt-4">
+              <div className="pt-4 space-y-2">
                 <Button
                   type="submit"
                   disabled={isAnalyzing || !selectedImage}
@@ -584,7 +590,7 @@ export default function ReportIssuePage() {
                   {isAnalyzing ? (
                     <>
                       <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                      On-Device AI is analyzing...
+                      Server AI is analyzing (Qwen-VL & DeepSeek)...
                     </>
                   ) : (
                     <>
@@ -593,6 +599,9 @@ export default function ReportIssuePage() {
                     </>
                   )}
                 </Button>
+                <p className="text-[11px] text-center text-slate-500">
+                  ⚡ Multimodal AI categorization runs securely on the municipal server with zero load on your device.
+                </p>
               </div>
             </form>
           </CardContent>
