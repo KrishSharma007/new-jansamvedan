@@ -20,6 +20,8 @@ import {
   Eye,
   MessageSquare,
   Calendar,
+  Bell,
+  BellRing,
 } from "lucide-react";
 import { ReportDetailModal } from "@/components/report-detail-modal";
 
@@ -82,6 +84,8 @@ export default function MyReportsPage() {
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
+  const [notifications, setNotifications] = useState<any[]>([]);
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -97,6 +101,15 @@ export default function MyReportsPage() {
         if (!res.ok) throw new Error("Failed to load reports");
         const data = await res.json();
         setReports(data);
+
+        // Load citizen notifications
+        const notifRes = await fetch(`${API_BASE}/notifications`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (notifRes.ok) {
+          const notifData = await notifRes.json();
+          setNotifications(notifData.notifications || []);
+        }
       } catch (e: any) {
         setError(e.message || "Failed to load reports");
       } finally {
@@ -104,12 +117,11 @@ export default function MyReportsPage() {
       }
     }
     loadReports();
+    const interval = setInterval(loadReports, 4000);
+    return () => clearInterval(interval);
   }, [router]);
 
   const filteredReports = reports.filter((report) => {
-    // Hide resolved reports from citizen view
-    if (report.status === "RESOLVED") return false;
-    
     const matchesSearch =
       report.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (report.address || "").toLowerCase().includes(searchTerm.toLowerCase());
@@ -147,24 +159,69 @@ export default function MyReportsPage() {
     );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 to-accent/5 py-8">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">
+    <div className="min-h-screen bg-background pt-28 pb-8 relative overflow-hidden">
+      {/* Background Decorators */}
+      <div className="absolute top-0 inset-x-0 h-[500px] bg-gradient-to-b from-primary/10 via-accent/5 to-transparent -z-10" />
+      
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 animate-fade-in">
+        <div className="mb-10 text-center sm:text-left">
+          <h1 className="text-4xl font-extrabold text-gradient mb-2 tracking-tight">
             My Reports
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-lg text-muted-foreground font-medium">
             Track the status of your submitted civic issues
           </p>
         </div>
 
+        {/* Citizen Notifications Activity Banner */}
+        {notifications.length > 0 && (
+          <Card className="mb-8 border-l-4 border-l-emerald-500 bg-emerald-50/40 shadow-xs">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-bold text-emerald-950 flex items-center gap-2">
+                <BellRing className="h-5 w-5 text-emerald-600 animate-bounce" />
+                Live Status Updates & NGO Pledges ({notifications.filter(n => !n.isRead).length} new)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                {notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`p-3 rounded-xl border text-xs flex justify-between items-start ${
+                      !n.isRead
+                        ? "bg-white border-emerald-300 font-medium shadow-2xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600"
+                    }`}
+                  >
+                    <div>
+                      <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <span>{n.title}</span>
+                        {!n.isRead && (
+                          <Badge className="bg-emerald-600 text-white text-[9px] px-1.5 py-0">New</Badge>
+                        )}
+                      </div>
+                      <p className="text-slate-700 mt-1">{n.message}</p>
+                    </div>
+                    <span className="text-[10px] text-slate-400 shrink-0 ml-2">
+                      {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Filters */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-lg">Filter Reports</CardTitle>
+        <Card className="mb-8 glass-card border-t-4 border-t-accent-foreground">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-lg font-bold text-foreground flex items-center">
+              <Filter className="w-5 h-5 mr-2 text-accent-foreground" />
+              Filter Reports
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Search</label>
                 <div className="relative">
@@ -189,6 +246,7 @@ export default function MyReportsPage() {
                     <SelectItem value="PENDING">Pending</SelectItem>
                     <SelectItem value="ASSIGNED">Assigned</SelectItem>
                     <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+                    <SelectItem value="RESOLVED">Resolved / Completed</SelectItem>
                     <SelectItem value="REJECTED">Rejected</SelectItem>
                   </SelectContent>
                 </Select>
@@ -237,27 +295,27 @@ export default function MyReportsPage() {
             filteredReports.map((report) => (
               <Card
                 key={report.id}
-                className="hover:shadow-md transition-shadow"
+                className="glass-card hover:-translate-y-1 transition-all duration-300 border-l-4 border-l-primary"
               >
-                <CardHeader>
-                  <div className="flex items-start justify-between">
+                <CardHeader className="pb-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <CardTitle className="text-lg">
+                        <CardTitle className="text-xl font-bold text-foreground">
                           {report.title}
                         </CardTitle>
-                        <Badge variant="outline">#{report.id}</Badge>
+                        <Badge variant="outline" className="text-[10px] bg-background/50 border-primary/20 text-primary uppercase font-bold tracking-wider">#{report.id.slice(0,8)}</Badge>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <MapPin className="h-4 w-4" />
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground font-medium">
+                        <MapPin className="h-4 w-4 text-primary" />
                         {report.address || "No address provided"}
                       </div>
                     </div>
-                    <div className="flex flex-col gap-2">
-                      <Badge className={getStatusColor(report.status)}>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge className={`${getStatusColor(report.status)} shadow-sm`}>
                         {report.status.replace("_", " ")}
                       </Badge>
-                      <Badge className={getPriorityColor(report.priority)}>
+                      <Badge className={`${getPriorityColor(report.priority)} shadow-sm`}>
                         {report.priority.toUpperCase()}
                       </Badge>
                     </div>

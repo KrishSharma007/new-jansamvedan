@@ -44,17 +44,22 @@ export function Navbar() {
     (user?.type === "admin" ? "ADMIN" : user ? "CITIZEN" : undefined);
 
   useEffect(() => {
-    const userData = localStorage.getItem("user");
+    const userData = localStorage.getItem("token");
     if (userData) {
-      const parsedUser = JSON.parse(userData);
+      const parsedUser = JSON.parse(localStorage.getItem("user") || "{}");
       setUser(parsedUser);
       fetchNotifications();
 
       const interval = setInterval(() => {
         fetchNotifications();
-      }, 10000);
+      }, 3000);
 
-      return () => clearInterval(interval);
+      window.addEventListener("focus", fetchNotifications);
+
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener("focus", fetchNotifications);
+      };
     }
   }, []);
 
@@ -62,7 +67,7 @@ export function Navbar() {
     const token = localStorage.getItem("token");
     if (!token) return;
     try {
-      const res = await fetch(`${API_BASE}/notifications/me`, {
+      const res = await fetch(`${API_BASE}/notifications`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -108,44 +113,44 @@ export function Navbar() {
   };
 
   return (
-    <nav className="bg-white/95 backdrop-blur-sm border-b border-slate-200 sticky top-0 z-50 shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
+    <nav className="fixed top-4 inset-x-4 md:inset-x-auto md:w-[90%] md:left-[5%] max-w-7xl z-50 transition-all duration-300">
+      <div className={`glass shadow-2xl shadow-primary/5 border border-border/50 transition-all duration-300 overflow-hidden ${isMenuOpen ? 'rounded-2xl' : 'rounded-[2.5rem]'}`}>
+        <div className="flex justify-between items-center h-16 px-4 sm:px-6">
           {/* Logo and Project Name */}
-          <Link href="/" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
-            <div className="bg-gradient-to-r from-green-600 to-emerald-600 rounded-lg p-2 shadow-sm">
-              <MapPin className="h-6 w-6 text-white" />
+          <Link href="/" className="flex items-center space-x-3 group hover:scale-[1.02] transition-all duration-300">
+            <div className="bg-gradient-to-br from-primary to-accent-foreground rounded-xl p-2 shadow-sm group-hover:shadow-md transition-all duration-300">
+              <MapPin className="h-5 w-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+              <h1 className="text-xl font-extrabold bg-gradient-to-r from-primary to-accent-foreground bg-clip-text text-transparent tracking-tight">
                 JanSamvedan
               </h1>
-              <p className="text-xs text-slate-500">
-                Smart India Hackathon
+              <p className="text-[10px] font-medium tracking-widest text-muted-foreground uppercase hidden sm:block">
+                Civic Connect
               </p>
             </div>
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-6">
+          <div className="hidden md:flex items-center space-x-2">
             {user && (
-              <div className="flex items-center space-x-2">
-                <Badge variant="default">
+              <div className="flex items-center space-x-2 mr-2">
+                <Badge variant="outline" className="bg-background/50 border-primary/20 text-primary">
                   {roleName === "CITIZEN" && (
                     <>
-                      <Users className="h-3 w-3 mr-1" />
+                      <Users className="h-3 w-3 mr-1.5" />
                       Citizen
                     </>
                   )}
                   {roleName === "ADMIN" && (
                     <>
-                      <Shield className="h-3 w-3 mr-1" />
+                      <Shield className="h-3 w-3 mr-1.5" />
                       Admin
                     </>
                   )}
                   {roleName === "NGO" && (
                     <>
-                      <Users className="h-3 w-3 mr-1" />
+                      <Users className="h-3 w-3 mr-1.5" />
                       NGO
                     </>
                   )}
@@ -179,7 +184,7 @@ export function Navbar() {
             {user && roleName === "NGO" && (
               <div className="flex items-center space-x-4">
                 <Link
-                  href="/ngo"
+                  href="/ngo/dashboard"
                   className="text-sm font-medium text-slate-700 hover:text-green-600 transition-colors px-3 py-2 rounded-md hover:bg-green-50"
                 >
                   Dashboard
@@ -384,7 +389,7 @@ export function Navbar() {
               {user && roleName === "NGO" && (
                 <div className="space-y-2">
                   <Link
-                    href="/ngo"
+                    href="/ngo/dashboard"
                     className="block text-sm font-medium text-slate-700 hover:text-green-600 px-3 py-2 rounded-md hover:bg-green-50 transition-colors"
                   >
                     Dashboard

@@ -173,8 +173,8 @@ export default function CityMapPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-emerald-100">
-      <div className="flex h-screen">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-emerald-100 pt-24">
+      <div className="flex h-[calc(100vh-6rem)]">
         {/* Enhanced Sidebar */}
         <div className="w-80 bg-white/80 backdrop-blur-sm border-r border-slate-200/60 overflow-y-auto shadow-xl">
           <div className="p-6">
@@ -221,9 +221,9 @@ export default function CityMapPage() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-3">
                     <div>
-                      <label className="text-xs font-medium text-slate-600 mb-2 block">Category</label>
+                      <label className="text-xs font-medium text-slate-600 mb-1.5 block">Category</label>
                       <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                         <SelectTrigger className="bg-white/70 border-slate-200">
                           <SelectValue />
@@ -240,7 +240,7 @@ export default function CityMapPage() {
                     </div>
 
                     <div>
-                      <label className="text-xs font-medium text-slate-600 mb-2 block">Status</label>
+                      <label className="text-xs font-medium text-slate-600 mb-1.5 block">Status</label>
                       <Select value={statusFilter} onValueChange={setStatusFilter}>
                         <SelectTrigger className="bg-white/70 border-slate-200">
                           <SelectValue />
@@ -373,17 +373,17 @@ export default function CityMapPage() {
                             <p className="text-xs text-slate-600 truncate mb-2">
                               {issue.address || "No address provided"}
                             </p>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
+                            <div className="flex flex-col gap-2 mt-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
                                 <Badge 
                                   variant="secondary" 
-                                  className="text-xs bg-slate-100 text-slate-700"
+                                  className="text-[10px] px-1.5 py-0 bg-slate-100 text-slate-700 max-w-full truncate"
                                 >
                                   {issue.category}
                                 </Badge>
                                 <Badge 
                                   variant="outline" 
-                                  className={`text-xs ${
+                                  className={`text-[10px] px-1.5 py-0 ${
                                     issue.priority === "high" ? "border-red-300 text-red-700" :
                                     issue.priority === "medium" ? "border-yellow-300 text-yellow-700" :
                                     "border-green-300 text-green-700"
@@ -395,14 +395,14 @@ export default function CityMapPage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="text-xs h-6 px-2"
+                                className="text-xs h-7 w-full sm:w-auto self-start"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleMarkerClick({ id: issue.id });
                                 }}
                               >
                                 <Navigation className="h-3 w-3 mr-1" />
-                                Focus
+                                Focus on Map
                               </Button>
                             </div>
                           </div>

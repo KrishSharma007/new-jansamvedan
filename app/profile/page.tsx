@@ -119,17 +119,7 @@ export default function ProfilePage() {
               <User className="h-4 w-4" />
               Profile
             </TabsTrigger>
-            <TabsTrigger value="settings" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
-              Settings
-            </TabsTrigger>
-            <TabsTrigger
-              value="achievements"
-              className="flex items-center gap-2"
-            >
-              <Award className="h-4 w-4" />
-              Achievements
-            </TabsTrigger>
+
           </TabsList>
 
           <TabsContent value="profile">
@@ -269,79 +259,7 @@ export default function ProfilePage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="settings">
-            <Card>
-              <CardHeader>
-                <CardTitle>Account Settings</CardTitle>
-                <CardDescription>
-                  Manage your account preferences
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Language</Label>
-                  <select className="w-full p-2 border rounded-md">
-                    <option>English</option>
-                    <option>Hindi</option>
-                    <option>Tamil</option>
-                    <option>Telugu</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Notifications</Label>
-                  <div className="space-y-2">
-                    <label className="flex items-center space-x-2">
-                      <input type="checkbox" defaultChecked />
-                      <span>Email notifications</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                      <input type="checkbox" defaultChecked />
-                      <span>SMS notifications</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                      <input type="checkbox" />
-                      <span>Push notifications</span>
-                    </label>
-                  </div>
-                </div>
-                <Button>Save Settings</Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
-          <TabsContent value="achievements">
-            <Card>
-              <CardHeader>
-                <CardTitle>Your Achievements</CardTitle>
-                <CardDescription>
-                  Track your civic engagement progress
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div className="p-4 border rounded-lg text-center">
-                    <Award className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
-                    <h3 className="font-semibold">First Reporter</h3>
-                    <p className="text-sm text-gray-600">
-                      Submitted your first issue report
-                    </p>
-                  </div>
-                  <div className="p-4 border rounded-lg text-center">
-                    <Award className="h-8 w-8 text-blue-500 mx-auto mb-2" />
-                    <h3 className="font-semibold">Community Helper</h3>
-                    <p className="text-sm text-gray-600">Reported 5 issues</p>
-                  </div>
-                  <div className="p-4 border rounded-lg text-center opacity-50">
-                    <Award className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                    <h3 className="font-semibold">Civic Champion</h3>
-                    <p className="text-sm text-gray-600">
-                      Report 25 issues (Locked)
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
       </div>
     </div>

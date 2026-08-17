@@ -3,39 +3,41 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { signJwt } from "../utils/jwt";
 import { authMiddleware } from "../middleware/auth";
-import { sendNotification } from "./notifications";
 
 const prisma = new PrismaClient();
 export const authRouter = Router();
 
 authRouter.post("/register", async (req, res) => {
   try {
-    const { name, email, password, phone, address, role, organization, serviceArea } = req.body || {};
+    const { name, email, password, phone, address, role, department, organization, serviceArea } = req.body || {};
     if (!name || !email || !password)
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ error: "Missing required fields (Name, Email, Password)" });
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing)
       return res.status(409).json({ error: "Email already in use" });
 
     const passwordHash = await bcrypt.hash(password, 10);
     
     // Determine user role and default verification status
-    const isNgo = role === "NGO";
-    const userRole = isNgo ? "NGO" : "CITIZEN";
+    const normalizedRole = (role || "").toUpperCase();
+    const isNgo = normalizedRole === "NGO";
+    const isAdmin = normalizedRole === "ADMIN";
+    const userRole = isAdmin ? "ADMIN" : isNgo ? "NGO" : "CITIZEN";
     const ngoStatus = isNgo ? "PENDING" : "VERIFIED";
 
     // Create user with appropriate role and role-specific fields
     const user = await prisma.user.create({
       data: {
-        name,
-        email,
+        name: name.trim(),
+        email: normalizedEmail,
         passwordHash,
-        phone,
-        address,
+        phone: phone ? phone.trim() : null,
+        address: address ? address.trim() : null,
         role: userRole,
         ngoStatus,
-        // Role-specific fields
+        department: isAdmin ? (department || "General Administration") : null,
         organization: isNgo ? organization : null,
         serviceArea: isNgo ? serviceArea : null,
       },
@@ -43,26 +45,40 @@ authRouter.post("/register", async (req, res) => {
         id: true,
         name: true,
         email: true,
+        phone: true,
+        address: true,
         role: true,
         ngoStatus: true,
+        department: true,
         organization: true,
         serviceArea: true,
+        createdAt: true,
       },
     });
 
     if (isNgo) {
-      // Notify user about pending verification
-      await sendNotification({
-        userId: user.id,
-        title: "NGO Account Created",
-        message: "Your NGO registration is pending admin approval. You will receive access once verified.",
-      });
+      // Notify all existing admins about the new NGO registration
+      try {
+        const admins = await prisma.user.findMany({ where: { role: "ADMIN" } });
+        for (const adm of admins) {
+          await prisma.notification.create({
+            data: {
+              userId: adm.id,
+              title: "New NGO Registration Pending",
+              message: `${organization || name} has registered as an NGO partner and is pending verification.`,
+              isRead: false,
+            },
+          });
+        }
+      } catch (notifErr) {
+        console.error("Error creating NGO registration notification:", notifErr);
+      }
     }
 
     const token = signJwt({ sub: user.id, role: user.role });
     return res.status(201).json({ token, user });
   } catch (e) {
-    console.error(e);
+    console.error("Registration error:", e);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -73,9 +89,10 @@ authRouter.post("/login", async (req, res) => {
     if (!email || !password)
       return res.status(400).json({ error: "Missing credentials" });
 
+    const normalizedEmail = email.trim().toLowerCase();
     // Check User table for all roles
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
     });
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
@@ -90,14 +107,17 @@ authRouter.post("/login", async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
+        address: user.address,
         role: user.role,
+        department: user.department,
         ngoStatus: user.ngoStatus,
         organization: user.organization,
         serviceArea: user.serviceArea,
       },
     });
   } catch (e) {
-    console.error(e);
+    console.error("Login error:", e);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -116,6 +136,7 @@ authRouter.get("/me", authMiddleware, async (req: any, res) => {
         role: true,
         phone: true,
         address: true,
+        department: true,
         ngoStatus: true,
         organization: true,
         serviceArea: true,
@@ -125,7 +146,7 @@ authRouter.get("/me", authMiddleware, async (req: any, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
     return res.status(200).json({ user });
   } catch (e) {
-    console.error(e);
+    console.error("Auth /me error:", e);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -188,6 +209,18 @@ authRouter.get("/ngos", authMiddleware, async (req: any, res) => {
         serviceArea: true,
         ngoStatus: true,
         createdAt: true,
+        helpingWith: {
+          include: {
+            complaint: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                category: true,
+              },
+            },
+          },
+        },
         _count: {
           select: {
             helpingWith: true,
@@ -233,15 +266,7 @@ authRouter.patch("/ngos/:id/status", authMiddleware, async (req: any, res) => {
       },
     });
 
-    // Notify the NGO about approval status change
-    await sendNotification({
-      userId: updatedNgo.id,
-      title: `NGO Account ${ngoStatus}`,
-      message:
-        ngoStatus === "VERIFIED"
-          ? "Congratulations! Your NGO registration has been verified by administrators. You can now act on community reports."
-          : `Your NGO application status has been set to ${ngoStatus}.`,
-    });
+
 
     return res.json(updatedNgo);
   } catch (e: any) {
@@ -255,11 +280,12 @@ authRouter.patch("/ngos/:id/status", authMiddleware, async (req: any, res) => {
 authRouter.put("/profile", authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user.sub;
-    const { name, email, phone, address, organization, serviceArea } = req.body || {};
+    const { name, email, phone, address, department, organization, serviceArea } = req.body || {};
     
     if (email) {
+      const normalizedEmail = email.trim().toLowerCase();
       const existingUser = await prisma.user.findUnique({
-        where: { email },
+        where: { email: normalizedEmail },
       });
       if (existingUser && existingUser.id !== userId) {
         return res.status(409).json({ error: "Email already in use" });
@@ -275,11 +301,15 @@ authRouter.put("/profile", authMiddleware, async (req: any, res) => {
     }
 
     const updateData: any = {};
-    if (name !== undefined) updateData.name = name;
-    if (email !== undefined) updateData.email = email;
-    if (phone !== undefined) updateData.phone = phone;
-    if (address !== undefined) updateData.address = address;
+    if (name !== undefined) updateData.name = name.trim();
+    if (email !== undefined) updateData.email = email.trim().toLowerCase();
+    if (phone !== undefined) updateData.phone = phone ? phone.trim() : null;
+    if (address !== undefined) updateData.address = address ? address.trim() : null;
     
+    if (currentUser.role === "ADMIN") {
+      if (department !== undefined) updateData.department = department;
+    }
+
     if (currentUser.role === "NGO") {
       if (organization !== undefined) updateData.organization = organization;
       if (serviceArea !== undefined) updateData.serviceArea = serviceArea;
@@ -295,6 +325,7 @@ authRouter.put("/profile", authMiddleware, async (req: any, res) => {
         phone: true,
         address: true,
         role: true,
+        department: true,
         ngoStatus: true,
         organization: true,
         serviceArea: true,
@@ -303,7 +334,7 @@ authRouter.put("/profile", authMiddleware, async (req: any, res) => {
 
     return res.json(updatedUser);
   } catch (e) {
-    console.error(e);
+    console.error("Profile update error:", e);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

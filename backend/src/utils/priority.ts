@@ -50,7 +50,7 @@ export function calculatePriorityScoreAndLevel(
   return { priorityScore, computedPriority };
 }
 
-export function enrichWithComputedPriority<T extends { category: string; confirmationsCount?: number; createdAt: Date | string }>(
+export function enrichWithComputedPriority<T extends { category: string; confirmationsCount?: number; createdAt: Date | string; isAnonymous?: boolean; reportedBy?: any }>(
   complaint: T
 ): T & PriorityResult {
   const confirmations = complaint.confirmationsCount || 0;
@@ -60,8 +60,13 @@ export function enrichWithComputedPriority<T extends { category: string; confirm
     complaint.createdAt
   );
 
+  const maskedReportedBy = complaint.isAnonymous
+    ? { id: "anonymous", name: "Anonymous Citizen", email: "hidden@jansamvedan.org" }
+    : complaint.reportedBy;
+
   return {
     ...complaint,
+    ...(complaint.reportedBy ? { reportedBy: maskedReportedBy } : {}),
     priorityScore,
     computedPriority,
     priority: computedPriority.toLowerCase(), // sync standard priority field for backwards compatibility

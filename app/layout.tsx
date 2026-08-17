@@ -4,7 +4,6 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Analytics } from "@vercel/analytics/next";
 import { Navbar } from "@/components/navbar";
-import { Footer } from "@/components/footer";
 import { Suspense } from "react";
 import Script from "next/script";
 import "./globals.css";
@@ -34,7 +33,6 @@ export default function RootLayout({
         <Suspense fallback={<div>Loading...</div>}>
           <Navbar />
           <main className="flex-1">{children}</main>
-          <Footer />
         </Suspense>
         <Analytics />
       </body>

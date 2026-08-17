@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MapPin, Calendar, Clock, User, FileText, Image as ImageIcon, ThumbsUp, History, ShieldCheck, CheckCircle2 } from "lucide-react";
+import { MapPin, Calendar, Clock, User, FileText, Image as ImageIcon, ThumbsUp, History, ShieldCheck, CheckCircle2, HeartHandshake, Building2 } from "lucide-react";
 import { LeafletDisplayMap } from "@/components/leaflet-display-map";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
@@ -26,13 +26,15 @@ interface Report {
   computedPriority?: string;
   priorityScore?: number;
   confirmationsCount?: number;
-  status: "PENDING" | "ASSIGNED" | "IN_PROGRESS" | "RESOLVED" | "REJECTED";
+  status: string;
+  helpers?: any[];
+  assignedDept?: string | null;
   address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   imageUrl?: string | null;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
   reportedById?: string;
   reportedBy?: {
     id?: string;
@@ -44,10 +46,11 @@ interface Report {
 }
 
 interface ReportDetailModalProps {
-  report: Report | null;
+  report: any; // Accept any report type to prevent strict type mismatches between pages
   isOpen: boolean;
   onClose: () => void;
-  onTrackOnMap?: (report: Report) => void;
+  onTrackOnMap?: (report: any) => void;
+  onConfirmReport?: (reportId: string) => void;
 }
 
 const getStatusColor = (status: string) => {
@@ -81,7 +84,7 @@ const getPriorityColor = (priority: string) => {
   }
 };
 
-export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: ReportDetailModalProps) {
+export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap, onConfirmReport }: ReportDetailModalProps) {
   const [fullReport, setFullReport] = useState<Report | null>(report);
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState("");
@@ -147,6 +150,29 @@ export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: Rep
     }
   };
 
+  const handleAssignNgo = async (orgName: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_BASE}/reports/${fullReport.id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          status: "ASSIGNED",
+          assignedDept: `NGO: ${orgName}`,
+          notes: `Report officially assigned to partner NGO ${orgName}`,
+        }),
+      });
+      if (res.ok) {
+        fetchReportDetails(fullReport.id);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleTrackOnMap = () => {
     if (onTrackOnMap) {
       onTrackOnMap(fullReport);
@@ -156,34 +182,36 @@ export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: Rep
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-green-600" />
-            Report Details & Audit History
-          </DialogTitle>
-          <DialogDescription>
-            Complete information and transparency audit log
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="max-w-3xl max-h-[90vh] border-none glass-card shadow-2xl p-0 flex flex-col overflow-hidden">
+        <div className="bg-gradient-to-br from-primary/10 to-transparent p-6 border-b border-border/50 shrink-0">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-2xl font-bold">
+              <FileText className="h-6 w-6 text-primary" />
+              Report Details & Audit History
+            </DialogTitle>
+            <DialogDescription className="text-base text-muted-foreground">
+              Complete information and transparency audit log
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        <div className="space-y-6">
+        <div className="space-y-8 p-6 overflow-y-auto flex-1">
           {/* Header Information */}
           <div className="space-y-4">
-            <div className="flex items-start justify-between">
+            <div className="flex flex-col md:flex-row items-start justify-between gap-4">
               <div className="space-y-2">
-                <h3 className="text-xl font-semibold">{fullReport.title}</h3>
+                <h3 className="text-2xl font-extrabold text-foreground leading-tight">{fullReport.title}</h3>
                 {fullReport.complaintId && (
-                  <p className="text-sm text-muted-foreground font-mono">
+                  <Badge variant="outline" className="text-xs bg-background/50 border-primary/20 text-primary font-mono tracking-wider">
                     ID: #{fullReport.complaintId}
-                  </p>
+                  </Badge>
                 )}
               </div>
-              <div className="flex flex-col gap-2 items-end">
-                <Badge className={`${getStatusColor(fullReport.status)} border text-xs px-2.5 py-1`}>
+              <div className="flex flex-wrap gap-2 items-end shrink-0">
+                <Badge className={`${getStatusColor(fullReport.status)} shadow-sm border text-xs px-3 py-1.5`}>
                   {fullReport.status.replace("_", " ")}
                 </Badge>
-                <Badge className={`${getPriorityColor(fullReport.computedPriority || fullReport.priority)} border text-xs px-2.5 py-1`}>
+                <Badge className={`${getPriorityColor(fullReport.computedPriority || fullReport.priority)} shadow-sm border text-xs px-3 py-1.5`}>
                   {(fullReport.computedPriority || fullReport.priority).toUpperCase()} Priority
                 </Badge>
               </div>
@@ -191,26 +219,27 @@ export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: Rep
           </div>
 
           {/* Dynamic Crowd Confirmation & Priority Card */}
-          <Card className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-center justify-between">
+          <Card className="glass border-l-4 border-l-accent-foreground overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-r from-accent/10 to-transparent opacity-50 pointer-events-none" />
+            <CardContent className="p-5 space-y-4 relative z-10">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <h4 className="font-semibold text-emerald-950 flex items-center gap-2">
-                    <ThumbsUp className="h-4 w-4 text-emerald-600" />
+                  <h4 className="font-bold text-foreground flex items-center gap-2">
+                    <ThumbsUp className="h-5 w-5 text-accent-foreground" />
                     Crowd Verification & Priority Signal
                   </h4>
-                  <p className="text-xs text-emerald-800 mt-1">
-                    {fullReport.confirmationsCount || 0} citizens confirmed this issue nearby. Dynamic Priority Score: <span className="font-bold">{fullReport.priorityScore || 0}</span>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {fullReport.confirmationsCount || 0} citizens confirmed this issue nearby. Dynamic Priority Score: <span className="font-black text-accent-foreground">{fullReport.priorityScore || 0}</span>
                   </p>
                 </div>
 
                 <Button
                   onClick={handleConfirm}
                   disabled={isConfirming || isReporter || isClosed || hasUserConfirmed}
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs shadow-sm"
+                  size="default"
+                  className="bg-accent-foreground hover:bg-accent text-background font-bold shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5"
                 >
-                  <ThumbsUp className="h-3.5 w-3.5 mr-1.5" />
+                  <ThumbsUp className="h-4 w-4 mr-2" />
                   {hasUserConfirmed
                     ? "Confirmed"
                     : isReporter
@@ -222,12 +251,12 @@ export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: Rep
               </div>
 
               {confirmError && (
-                <p className="text-xs font-medium text-red-600 bg-red-50 p-2 rounded border border-red-200">
+                <p className="text-sm font-medium text-destructive bg-destructive/10 p-3 rounded-lg border border-destructive/20 animate-fade-in">
                   {confirmError}
                 </p>
               )}
               {confirmSuccess && (
-                <p className="text-xs font-medium text-green-700 bg-green-100 p-2 rounded border border-green-300">
+                <p className="text-sm font-medium text-primary bg-primary/10 p-3 rounded-lg border border-primary/20 animate-fade-in">
                   {confirmSuccess}
                 </p>
               )}
@@ -287,44 +316,124 @@ export function ReportDetailModal({ report, isOpen, onClose, onTrackOnMap }: Rep
             </div>
           )}
 
+          {/* Pledged NGO Assistance */}
+          {fullReport.helpers && fullReport.helpers.length > 0 && (
+            <div className="space-y-3 pt-4 border-t border-border/50">
+              <h4 className="font-bold flex items-center gap-2 text-emerald-800">
+                <HeartHandshake className="h-5 w-5 text-emerald-600" />
+                Pledged NGO Assistance ({fullReport.helpers.length} Verified Partner{fullReport.helpers.length > 1 ? "s" : ""})
+              </h4>
+              <div className="grid gap-2">
+                {fullReport.helpers.map((helper: any) => {
+                  const orgName = helper.user?.organization || helper.user?.name || "Verified NGO Partner";
+                  const isAssignedToThis = fullReport.assignedDept === `NGO: ${orgName}`;
+                  const isAdmin = currentUser?.role === "ADMIN";
+
+                  return (
+                    <div
+                      key={helper.id || helper.user?.id}
+                      className="p-3 bg-emerald-50/70 rounded-xl border border-emerald-200/80 flex items-center justify-between shadow-sm"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="font-semibold text-slate-900 flex items-center gap-1.5 text-sm">
+                          <Building2 className="h-4 w-4 text-emerald-600" />
+                          {orgName}
+                        </div>
+                        <div className="text-xs text-slate-600 flex items-center gap-2">
+                          <span>Email: {helper.user?.email || "N/A"}</span>
+                          {helper.user?.phone && <span>• Phone: {helper.user.phone}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isAssignedToThis ? (
+                          <Badge className="bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1">
+                            <ShieldCheck className="h-3.5 w-3.5" /> Assigned Partner
+                          </Badge>
+                        ) : isAdmin ? (
+                          <Button
+                            size="sm"
+                            onClick={() => handleAssignNgo(orgName)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                          >
+                            Assign Issue to NGO
+                          </Button>
+                        ) : (
+                          <Badge className="bg-emerald-600 text-white text-xs">
+                            Pledged Helper
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Status Audit Trail Timeline */}
-          <div className="space-y-3">
-            <h4 className="font-medium flex items-center gap-2 text-slate-800">
-              <History className="h-4 w-4 text-slate-600" />
+          <div className="space-y-4 pt-4 border-t border-border/50">
+            <h4 className="font-bold flex items-center gap-2 text-foreground">
+              <History className="h-5 w-5 text-primary" />
               Status Audit Trail & Lifecycle History
             </h4>
             {fullReport.statusHistory && fullReport.statusHistory.length > 0 ? (
-              <div className="space-y-2 relative border-l-2 border-slate-200 ml-3 pl-4 py-1">
+              <div className="space-y-4 relative border-l-2 border-primary/20 ml-3 pl-6 py-2">
                 {fullReport.statusHistory.map((hist: any) => (
                   <div key={hist.id} className="relative group">
-                    <div className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-4 ring-white" />
-                    <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs text-xs space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-900">
-                          {hist.oldStatus} ➔ <Badge variant="outline" className="text-[10px]">{hist.newStatus}</Badge>
+                    <div className="absolute -left-[31px] top-1.5 h-3.5 w-3.5 rounded-full bg-primary ring-4 ring-background shadow-[0_0_10px_var(--color-primary)] group-hover:scale-125 transition-transform duration-300" />
+                    <div className="glass-card p-4 rounded-xl border border-border/50 shadow-sm text-sm space-y-2 group-hover:shadow-md transition-shadow duration-300">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <span className="font-bold text-foreground flex items-center gap-2 flex-wrap">
+                          <span className="text-muted-foreground">{hist.oldStatus.replace("_", " ")}</span>
+                          <span className="text-primary">➔</span>
+                          <Badge variant="default" className="text-[10px] bg-primary/10 text-primary border-primary/20 hover:bg-primary/20">{hist.newStatus.replace("_", " ")}</Badge>
                         </span>
-                        <span className="text-[10px] text-slate-400">
+                        <span className="text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-1 rounded-md">
                           {new Date(hist.createdAt).toLocaleDateString()} {new Date(hist.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
-                      <p className="text-slate-600">{hist.notes}</p>
-                      <div className="text-[10px] text-slate-500 flex items-center gap-1">
-                        <ShieldCheck className="h-3 w-3 text-blue-600" />
-                        Changed by: {hist.changedBy?.name || "System"} ({hist.changedByRole})
+                      <p className="text-muted-foreground leading-relaxed">{hist.notes}</p>
+                      <div className="text-xs font-medium text-slate-700 dark:text-slate-300 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/50 bg-slate-50/50 dark:bg-slate-900/50 p-2.5 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+                          <span>
+                            Authorized Officer: <strong className="text-foreground font-bold">{hist.changedBy?.name || "Municipal Officer"}</strong>
+                          </span>
+                          {hist.changedBy?.organization && (
+                            <span className="text-xs text-muted-foreground">({hist.changedBy.organization})</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[11px] font-mono bg-emerald-50 text-emerald-700 border-emerald-300 font-semibold">
+                            Public ID: #{hist.changedBy?.id ? hist.changedBy.id.slice(-8).toUpperCase() : "OFFICER-SYS"}
+                          </Badge>
+                          <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider">
+                            {hist.changedByRole || "ADMIN"}
+                          </Badge>
+                        </div>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="p-3 text-xs text-slate-500 bg-slate-50 rounded-lg border border-slate-100">
+              <div className="p-4 text-sm font-medium text-muted-foreground glass rounded-xl border border-border/50 text-center">
                 Initial report filed. No status changes recorded yet.
               </div>
             )}
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 pt-4 border-t">
+          <div className="flex flex-wrap gap-2 pt-4 border-t">
+            {onConfirmReport && (
+              <Button
+                onClick={() => onConfirmReport(fullReport.id)}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-medium"
+              >
+                <ThumbsUp className="h-4 w-4 mr-2" />
+                Confirm This Issue
+              </Button>
+            )}
             {fullReport.latitude && fullReport.longitude && onTrackOnMap && (
               <Button onClick={handleTrackOnMap} className="flex-1 bg-green-600 hover:bg-green-700 text-white">
                 <MapPin className="h-4 w-4 mr-2" />

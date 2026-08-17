@@ -5,6 +5,7 @@ import type React from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LeafletMap } from "@/components/leaflet-map";
+import { compressImage } from "@/utils/imageCompression";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,8 +25,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Camera, MapPin, Upload, Send, CheckCircle, Loader2, AlertTriangle, ThumbsUp } from "lucide-react";
+import { Camera, MapPin, Upload, Send, CheckCircle, Loader2, AlertTriangle, ThumbsUp, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { reverseGeocode, formatCoordinates, isValidCoordinates } from "@/utils/geocoding";
+import { ReportDetailModal } from "@/components/report-detail-modal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -39,16 +41,15 @@ export default function ReportIssuePage() {
   const [longitude, setLongitude] = useState<number | null>(null);
   const [isCapturingLocation, setIsCapturingLocation] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
-  const [category, setCategory] = useState<string>("");
-  const [priority, setPriority] = useState<string>("");
   const [description, setDescription] = useState<string>("");
-  const [title, setTitle] = useState<string>("");
+  const [isAnonymous, setIsAnonymous] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [showMap, setShowMap] = useState(false);
 
   // Duplicate detection state
   const [duplicates, setDuplicates] = useState<any[]>([]);
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
+  const [selectedSimilarReport, setSelectedSimilarReport] = useState<any | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -57,28 +58,17 @@ export default function ReportIssuePage() {
     }
   }, [router]);
 
-  // Trigger duplicate check whenever category or coordinates/address change
+  // Trigger duplicate check whenever coordinates/address change
   useEffect(() => {
-    if (category && (address || (latitude && longitude))) {
+    if (address || (latitude && longitude)) {
       checkDuplicates();
     }
-  }, [category, address, latitude, longitude]);
+  }, [address, latitude, longitude]);
 
   const checkDuplicates = async () => {
     setIsCheckingDuplicates(true);
     try {
       const token = localStorage.getItem("token");
-      const categoryMap: Record<string, string> = {
-        pothole: "Pothole",
-        garbage: "Garbage Collection",
-        streetlight: "Street Light",
-        water: "Water Supply",
-        drainage: "Drainage",
-        traffic: "Traffic Signal",
-        park: "Park Maintenance",
-      };
-      const catName = categoryMap[category] || category;
-
       const res = await fetch(`${API_BASE}/reports/find-duplicates`, {
         method: "POST",
         headers: {
@@ -86,7 +76,6 @@ export default function ReportIssuePage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          category: catName,
           latitude,
           longitude,
           address,
@@ -122,14 +111,16 @@ export default function ReportIssuePage() {
     }
   };
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setSelectedImage(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressedDataUrl = await compressImage(file, 512, 0.7);
+        setSelectedImage(compressedDataUrl);
+      } catch (err) {
+        console.error("Failed to compress image:", err);
+        setError("Failed to process image. Please try another one.");
+      }
     }
   };
 
@@ -202,9 +193,16 @@ export default function ReportIssuePage() {
     await geocodeLocation(lat, lng);
   };
 
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (!selectedImage) {
+      setError("Please capture or upload a photo of the issue. AI needs this to determine the category.");
+      return;
+    }
 
     if (!latitude || !longitude) {
       setError("Please select a location on the map");
@@ -217,41 +215,28 @@ export default function ReportIssuePage() {
     }
 
     try {
+      setIsAnalyzing(true);
       const token = localStorage.getItem("token");
       if (!token) return router.replace("/login");
 
-      let imageUrl: string | undefined = undefined;
-      if (selectedImage) {
-        const up = await fetch(`${API_BASE}/uploads/image`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            dataUrl: selectedImage,
-            folder: "jansamvedan/reports",
-            category: category || "other",
-          }),
-        });
-        if (!up.ok) {
-          const ud = await up.json().catch(() => ({} as any));
-          throw new Error(ud.error || "Image upload failed");
-        }
-        const upRes = await up.json();
-        imageUrl = upRes.url as string;
+      // 1. Upload to Cloudinary via backend helper
+      const up = await fetch(`${API_BASE}/uploads/image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dataUrl: selectedImage,
+          folder: "jansamvedan/reports",
+          category: "ai-auto",
+        }),
+      });
+      if (!up.ok) {
+        const ud = await up.json().catch(() => ({} as any));
+        throw new Error(ud.error || "Image upload failed");
       }
+      const upRes = await up.json();
+      const imageUrl = upRes.url as string;
 
-      const categoryMap: Record<string, string> = {
-        pothole: "Pothole",
-        garbage: "Garbage Collection",
-        streetlight: "Street Light",
-        water: "Water Supply",
-        drainage: "Drainage",
-        traffic: "Traffic Signal",
-        park: "Park Maintenance",
-      };
-      const catName = categoryMap[category] || category || "Other";
-
+      // 2. Submit to reports endpoint with dataUrl so backend Ollama can analyze it
       const res = await fetch(`${API_BASE}/reports`, {
         method: "POST",
         headers: {
@@ -259,24 +244,28 @@ export default function ReportIssuePage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          title: title || `${catName} Issue`,
+          title: "Civic Issue",
+          category: "Other",
+          priority: "medium",
           description,
-          category: catName,
-          priority: priority || "medium",
+          isAnonymous,
           latitude,
           longitude,
           address,
           imageUrl,
+          dataUrl: selectedImage, // Pass base64 for AI analysis
         }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({} as any));
-        throw new Error(data.error || "Failed to submit report");
+        throw new Error(data.error || "Failed to submit report. AI analysis may have timed out.");
       }
 
       setIsSubmitted(true);
     } catch (err: any) {
       setError(err.message || "Something went wrong");
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -298,7 +287,6 @@ export default function ReportIssuePage() {
           <CardContent className="space-y-6">
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-left">
               <p className="text-sm text-blue-800">
-                📧 Updates will be sent to your registered account.<br/>
                 📱 Track issue status in your dashboard.
               </p>
             </div>
@@ -307,7 +295,6 @@ export default function ReportIssuePage() {
                 onClick={() => {
                   setIsSubmitted(false);
                   setDuplicates([]);
-                  setTitle("");
                   setDescription("");
                 }}
                 variant="outline"
@@ -329,18 +316,22 @@ export default function ReportIssuePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 py-4 sm:py-8">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-2">
+    <div className="min-h-screen bg-background pt-28 pb-8 sm:pt-32 sm:pb-12 relative overflow-hidden">
+      {/* Background Decorators */}
+      <div className="absolute top-0 inset-x-0 h-96 bg-gradient-to-b from-primary/10 to-transparent -z-10" />
+      <div className="absolute -left-40 top-40 h-96 w-96 rounded-full bg-primary/20 blur-[100px] -z-10 opacity-50" />
+      
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 animate-fade-in">
+        <div className="text-center mb-10">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-gradient mb-4 tracking-tight">
             Report a Civic Issue
           </h1>
-          <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto">
-            Help make your community better by reporting issues. Our crowd-confirmation engine checks for duplicate reports nearby to boost issue priority automatically.
+          <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto font-medium">
+            Help make your community better. Our engine automatically checks for duplicates to boost crowd-priority.
           </p>
         </div>
 
-        <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
+        <Card className="glass-card border-t-4 border-t-primary">
           <CardHeader>
             <CardTitle>Issue Details</CardTitle>
             <CardDescription>
@@ -369,9 +360,9 @@ export default function ReportIssuePage() {
                     {duplicates.map((dup) => (
                       <div
                         key={dup.id}
-                        className="p-3 bg-white rounded-lg border border-amber-200 flex items-center justify-between gap-3 text-xs shadow-sm"
+                        className="p-3 bg-white rounded-lg border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm"
                       >
-                        <div>
+                        <div className="flex-1">
                           <div className="font-semibold text-slate-900">{dup.title} ({dup.complaintId})</div>
                           <div className="text-slate-500">{dup.address || "Nearby location"}</div>
                           <div className="flex gap-2 mt-1">
@@ -383,78 +374,33 @@ export default function ReportIssuePage() {
                             </Badge>
                           </div>
                         </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => confirmExistingReport(dup.id)}
-                          className="bg-amber-600 hover:bg-amber-700 text-white text-xs whitespace-nowrap"
-                        >
-                          <ThumbsUp className="h-3.5 w-3.5 mr-1" />
-                          Confirm This Issue
-                        </Button>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedSimilarReport(dup)}
+                            className="border-amber-300 text-amber-900 hover:bg-amber-100 text-xs whitespace-nowrap"
+                          >
+                            <Eye className="h-3.5 w-3.5 mr-1" />
+                            View Detail
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => confirmExistingReport(dup.id)}
+                            className="bg-amber-600 hover:bg-amber-700 text-white text-xs whitespace-nowrap"
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5 mr-1" />
+                            Confirm Issue
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
               
-              {/* Category and Location */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                {/* Category */}
-                <div className="space-y-2">
-                  <Label htmlFor="category" className="text-sm font-medium text-slate-700">
-                    Issue Category *
-                  </Label>
-                  <Select required onValueChange={setCategory}>
-                    <SelectTrigger className="h-11 border-slate-200 focus:border-green-400 focus:ring-green-400/20">
-                      <SelectValue placeholder="Select issue type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pothole">🕳️ Pothole</SelectItem>
-                      <SelectItem value="garbage">🗑️ Garbage Collection</SelectItem>
-                      <SelectItem value="streetlight">💡 Street Light</SelectItem>
-                      <SelectItem value="water">💧 Water Supply</SelectItem>
-                      <SelectItem value="drainage">🌊 Drainage</SelectItem>
-                      <SelectItem value="traffic">🚦 Traffic Signal</SelectItem>
-                      <SelectItem value="park">🌳 Park Maintenance</SelectItem>
-                      <SelectItem value="other">📋 Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Initial Priority Preference */}
-                <div className="space-y-2">
-                  <Label htmlFor="priority" className="text-sm font-medium text-slate-700">
-                    Initial Priority Level *
-                  </Label>
-                  <Select required onValueChange={setPriority}>
-                    <SelectTrigger className="h-11 border-slate-200 focus:border-green-400 focus:ring-green-400/20">
-                      <SelectValue placeholder="Select priority" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low - Minor issue</SelectItem>
-                      <SelectItem value="medium">Medium - Moderate impact</SelectItem>
-                      <SelectItem value="high">High - Serious concern</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Title */}
-              <div className="space-y-2">
-                <Label htmlFor="title" className="text-sm font-medium text-slate-700">
-                  Issue Title *
-                </Label>
-                <Input
-                  id="title"
-                  placeholder="Brief title (e.g. Deep pothole on Main Road)"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  required
-                  className="h-11 border-slate-200 focus:border-green-400 focus:ring-green-400/20"
-                />
-              </div>
-
               {/* Location */}
               <div className="space-y-3">
                 <Label htmlFor="location" className="text-sm font-medium text-slate-700">
@@ -503,7 +449,7 @@ export default function ReportIssuePage() {
                         value={address}
                         onChange={(e) => setAddress(e.target.value)}
                         required
-                        className="h-11 pr-10 border-slate-200 focus:border-green-400 focus:ring-green-400/20"
+                        className="h-11 pr-10 border-slate-200 focus:ring-primary/30 focus:border-primary"
                       />
                       {isGeocoding && (
                         <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -537,7 +483,7 @@ export default function ReportIssuePage() {
               {/* Photo Upload */}
               <div className="space-y-2">
                 <Label htmlFor="photo" className="text-sm font-medium text-slate-700">
-                  Photo Evidence (Optional)
+                  Photo Evidence (Required for AI Analysis) *
                 </Label>
                 <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 sm:p-6 text-center hover:border-green-300 transition-colors">
                   {selectedImage ? (
@@ -575,6 +521,7 @@ export default function ReportIssuePage() {
                           accept="image/*"
                           onChange={handleImageUpload}
                           className="hidden"
+                          required
                         />
                       </div>
                     </div>
@@ -594,25 +541,76 @@ export default function ReportIssuePage() {
                   required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="border-slate-200 focus:border-green-400 focus:ring-green-400/20 resize-none"
+                  className="border-slate-200 focus:ring-primary/30 focus:border-primary resize-none"
                 />
+              </div>
+
+              {/* Anonymous Reporting Option */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/80 space-y-2 transition-all hover:border-slate-300">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2.5 rounded-xl ${isAnonymous ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-700"}`}>
+                      {isAnonymous ? <EyeOff className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
+                    </div>
+                    <div>
+                      <Label htmlFor="anonymous-toggle" className="font-bold text-slate-900 text-sm cursor-pointer">
+                        Report Anonymously
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        {isAnonymous
+                          ? "Your identity is completely hidden from admins, NGOs, and the public."
+                          : "Your name will be visible to municipal administrators only for status updates."}
+                      </p>
+                    </div>
+                  </div>
+                  <input
+                    id="anonymous-toggle"
+                    type="checkbox"
+                    checked={isAnonymous}
+                    onChange={(e) => setIsAnonymous(e.target.checked)}
+                    className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                  />
+                </div>
               </div>
 
               {/* Submit Button */}
               <div className="pt-4">
                 <Button
                   type="submit"
-                  className="w-full h-12 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200"
+                  disabled={isAnalyzing || !selectedImage}
+                  className="w-full h-12 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-70"
                   size="lg"
                 >
-                  <Send className="mr-2 h-5 w-5" />
-                  Submit New Ticket
+                  {isAnalyzing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                      On-Device AI is analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="mr-2 h-5 w-5" />
+                      Submit New Ticket
+                    </>
+                  )}
                 </Button>
               </div>
             </form>
           </CardContent>
         </Card>
       </div>
+
+      {/* Similar Issue Detail Modal */}
+      {selectedSimilarReport && (
+        <ReportDetailModal
+          report={selectedSimilarReport}
+          isOpen={!!selectedSimilarReport}
+          onClose={() => setSelectedSimilarReport(null)}
+          onConfirmReport={(id) => {
+            confirmExistingReport(id);
+            setSelectedSimilarReport(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -47,6 +47,10 @@ model Complaint {
   longitude          Float?
   address            String?
   imageUrl           String?
+  isAnonymous        Boolean                 @default(false)
+  mergedIntoId       String?                 // If this complaint was merged into a master
+  mergedInto         Complaint?              @relation("MergedComplaints", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom         Complaint[]             @relation("MergedComplaints")
   reportedBy         User                    @relation(fields: [reportedById], references: [id])
   reportedById       String
   assignedDept       String?
@@ -60,6 +64,7 @@ model Complaint {
   @@index([status])
   @@index([category])
   @@index([reportedById])
+  @@index([mergedIntoId])
 }
 
 // Track citizen confirmations/upvotes for duplicate or existing complaints

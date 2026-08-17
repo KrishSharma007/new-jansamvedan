@@ -1,0 +1,22 @@
+services:
+  # ─── PostgreSQL Database (Lightweight & Fast) ────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: jansamvedan-db
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: jansamvedan
+      POSTGRES_PASSWORD: jansamvedan_secret
+      POSTGRES_DB: jansamvedan
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jansamvedan -d jansamvedan"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+
+volumes:
+  pgdata:

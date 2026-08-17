@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+backend/node_modules
+backend/dist
+backend/uploads
+*.db
+*.db-journal
+.env*
+*.tsbuildinfo

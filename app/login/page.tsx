@@ -28,8 +28,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const performLogin = async (email: string, pass: string) => {
     setLoading(true);
     setError("");
 
@@ -37,10 +36,7 @@ export default function LoginPage() {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-        }),
+        body: JSON.stringify({ email, password: pass }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -49,10 +45,6 @@ export default function LoginPage() {
       const data = await res.json();
       const { token, user } = data;
 
-      // Debug: Log user data
-      console.log("Login response - User data:", user);
-      console.log("User role:", user.role);
-
       localStorage.setItem("token", token);
       localStorage.setItem(
         "user",
@@ -60,6 +52,8 @@ export default function LoginPage() {
           id: user.id,
           email: user.email,
           name: user.name,
+          phone: user.phone,
+          address: user.address,
           type:
             user.role === "ADMIN"
               ? "admin"
@@ -67,24 +61,36 @@ export default function LoginPage() {
               ? "ngo"
               : "citizen",
           role: user.role,
+          department: user.department,
+          ngoStatus: user.ngoStatus,
+          organization: user.organization,
+          serviceArea: user.serviceArea,
         })
       );
 
-      // Debug: Log redirect decision
       const redirectUrl =
         user.role === "ADMIN"
           ? "/admin"
           : user.role === "NGO"
           ? "/ngo/dashboard"
           : "/citizen/dashboard";
-      console.log("Redirecting to:", redirectUrl);
 
       window.location.href = redirectUrl;
     } catch (err: any) {
       setError(err.message || "Something went wrong");
-    } finally {
       setLoading(false);
     }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await performLogin(formData.email, formData.password);
+  };
+
+  const handleDemoLogin = (role: "citizen" | "admin" | "ngo") => {
+    if (role === "citizen") performLogin("vikram@gmail.com", "password123");
+    if (role === "admin") performLogin("admin@jansamvedan.org", "password123");
+    if (role === "ngo") performLogin("amit@cleanrohini.org", "password123");
   };
 
   return (
@@ -169,6 +175,21 @@ export default function LoginPage() {
               {loading ? "Signing in..." : "Sign In"}
             </Button>
           </form>
+
+          <div className="mt-6 border-t border-slate-200 pt-6">
+            <p className="text-sm text-center text-slate-500 mb-4 font-medium uppercase tracking-wider">Fast Demo Logins</p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button type="button" variant="outline" onClick={() => handleDemoLogin("citizen")} className="flex-1 h-12 bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200 shadow-sm">
+                👤 Citizen
+              </Button>
+              <Button type="button" variant="outline" onClick={() => handleDemoLogin("admin")} className="flex-1 h-12 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200 shadow-sm">
+                🛡️ Admin
+              </Button>
+              <Button type="button" variant="outline" onClick={() => handleDemoLogin("ngo")} className="flex-1 h-12 bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-200 shadow-sm">
+                🏢 NGO
+              </Button>
+            </div>
+          </div>
 
           <div className="mt-6 text-center text-sm text-slate-600">
             Don't have an account?{" "}

@@ -58,6 +58,34 @@ router.post("/:complaintId/help", authMiddleware, async (req: Request, res: Resp
         }
       });
 
+      if (complaint.reportedById) {
+        await prisma.notification.create({
+          data: {
+            userId: complaint.reportedById,
+            complaintId,
+            title: `NGO Partner Pledged Assistance!`,
+            message: `${user.organization || user.name} has pledged assistance for your report #${complaint.complaintId || complaintId.slice(0, 6)}`,
+          },
+        }).catch((err) => console.error("Notification creation error:", err));
+      }
+
+      // Also notify all admins when an NGO offers assistance
+      try {
+        const admins = await prisma.user.findMany({ where: { role: "ADMIN" }, select: { id: true } });
+        if (admins.length > 0) {
+          await prisma.notification.createMany({
+            data: admins.map((admin) => ({
+              userId: admin.id,
+              complaintId,
+              title: `NGO Assistance Pledged`,
+              message: `${user.organization || user.name} pledged help on report #${complaint.complaintId || complaintId.slice(0, 6)}. Review assignment in dashboard.`,
+            })),
+          });
+        }
+      } catch (adminNotifErr) {
+        console.error("Admin notification error on NGO pledge:", adminNotifErr);
+      }
+
       res.json({ 
         success: true, 
         message: "Successfully added as helper",
@@ -214,9 +242,25 @@ router.patch("/:helperId/status", authMiddleware, async (req: Request, res: Resp
             phone: true,
             organization: true
           }
+        },
+        complaint: {
+          select: { id: true, complaintId: true, title: true }
         }
       }
     });
+
+    // Notify the NGO about the admin's decision
+    if (helper.user?.id) {
+      const statusLabel = status === "DECLINED" ? "declined" : status === "CONTACTED" ? "contacted for coordination" : "updated";
+      await prisma.notification.create({
+        data: {
+          userId: helper.user.id,
+          complaintId: helper.complaint?.id || null,
+          title: `Pledge ${status === "DECLINED" ? "Declined" : "Updated"}: Report #${helper.complaint?.complaintId || ""}`,
+          message: `Your assistance pledge for "${helper.complaint?.title || "a civic issue"}" has been ${statusLabel} by the municipal administrator.`,
+        },
+      }).catch((err) => console.error("NGO notification error:", err));
+    }
 
     res.json({ 
       success: true, 
