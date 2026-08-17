@@ -96,6 +96,8 @@ export default function NgoDashboardPage() {
   const [statusFilter, setStatusFilter] = useState("active");
   const [radiusFilter, setRadiusFilter] = useState<string>("5"); // 2, 5, 10, all
   const [sortBy, setSortBy] = useState<string>("distance"); // distance, priority, confirms, newest
+  const [anchorMode, setAnchorMode] = useState<"service" | "live">("service");
+  const [isLocating, setIsLocating] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -106,6 +108,30 @@ export default function NgoDashboardPage() {
   const [serviceArea, setServiceArea] = useState<string>("All Areas");
   const [anchorCoords, setAnchorCoords] = useState<{ lat: number; lng: number; source: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const fetchLiveLocation = () => {
+    if (!navigator.geolocation) {
+      setActionError("Geolocation is not supported by your browser");
+      return;
+    }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+        setIsLocating(false);
+      },
+      (err) => {
+        console.error("Geolocation error:", err);
+        setActionError("Could not access live GPS location. Please ensure location permissions are enabled.");
+        setIsLocating(false);
+        setAnchorMode("service");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -146,7 +172,8 @@ export default function NgoDashboardPage() {
       try {
         const queryParams = new URLSearchParams();
         if (radiusFilter !== "all") queryParams.append("radius", radiusFilter);
-        if (userLocation) {
+        queryParams.append("anchorMode", anchorMode);
+        if (anchorMode === "live" && userLocation) {
           queryParams.append("lat", userLocation.lat.toString());
           queryParams.append("lng", userLocation.lng.toString());
         }
@@ -193,7 +220,7 @@ export default function NgoDashboardPage() {
     load();
     const interval = setInterval(load, 8000);
     return () => clearInterval(interval);
-  }, [radiusFilter, userLocation]);
+  }, [radiusFilter, userLocation, anchorMode]);
 
   const handleWantToHelp = async (reportId: string) => {
     try {
@@ -336,18 +363,82 @@ export default function NgoDashboardPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="bg-white/90 text-slate-700 border-slate-200 text-xs px-3 py-1.5 shadow-xs flex items-center gap-1.5">
                 <Building2 className="h-4 w-4 text-purple-600" />
-                <span>Area: <strong className="text-slate-900">{serviceArea}</strong></span>
+                <span>Registered: <strong className="text-slate-900">{serviceArea}</strong></span>
               </Badge>
-
-              {anchorCoords && (
-                <Badge variant="outline" className="bg-white/90 text-slate-700 border-slate-200 text-xs px-3 py-1.5 shadow-xs flex items-center gap-1.5">
-                  <Compass className="h-4 w-4 text-green-600" />
-                  <span>Anchor: <strong className="text-green-700">{anchorCoords.source}</strong> ({anchorCoords.lat.toFixed(3)}°N, {anchorCoords.lng.toFixed(3)}°E)</span>
-                </Badge>
-              )}
             </div>
           )}
         </div>
+
+        {/* Dual Distance Anchor Selector: Registered Service Area vs Live GPS */}
+        {!pendingApproval && (
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 p-3.5 bg-white/90 backdrop-blur-sm rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Compass className="h-4 w-4 text-emerald-600" />
+                Distance Anchor:
+              </span>
+              <div className="flex items-center p-1 bg-slate-100 rounded-xl gap-1">
+                <button
+                  type="button"
+                  onClick={() => setAnchorMode("service")}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+                    anchorMode === "service"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  <Building2 className="h-3.5 w-3.5" />
+                  <span>Registered Service Area</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAnchorMode("live");
+                    fetchLiveLocation();
+                  }}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+                    anchorMode === "live"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  <Navigation className="h-3.5 w-3.5" />
+                  <span>Live Field GPS</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Anchor details */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {anchorMode === "live" ? (
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    Live GPS {userLocation ? `(${userLocation.lat.toFixed(3)}°N, ${userLocation.lng.toFixed(3)}°E)` : "(Acquiring...)"}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchLiveLocation}
+                    disabled={isLocating}
+                    className="h-7 text-[11px] px-2.5 border-slate-200 hover:bg-emerald-50 text-slate-700 rounded-lg"
+                  >
+                    {isLocating ? "Locating..." : "↻ Refresh GPS"}
+                  </Button>
+                </div>
+              ) : (
+                <span className="font-medium text-slate-700 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+                  🏢 Office Anchor: <strong className="text-emerald-800">{anchorCoords?.source || serviceArea}</strong> {anchorCoords ? `(${anchorCoords.lat.toFixed(3)}°N, ${anchorCoords.lng.toFixed(3)}°E)` : ""}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {actionError && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between gap-3 text-xs sm:text-sm text-red-800 shadow-xs animate-in fade-in">
@@ -523,16 +614,17 @@ export default function NgoDashboardPage() {
                   const isHelping = helpingReports.has(report.id);
                   const isResolved = report.status === "RESOLVED";
 
-                  // Distance display helper
+                  // Distance display helper with anchor origin label
                   let distanceLabel = "Radius Match";
                   let distanceBadgeColor = "bg-slate-100 text-slate-700 border-slate-200";
 
                   if (report.distanceMeters !== undefined && report.distanceMeters !== null) {
+                    const originTag = anchorMode === "live" ? "(from GPS)" : "(from Office)";
                     if (report.distanceMeters < 1000) {
-                      distanceLabel = `📍 ${report.distanceMeters}m away`;
+                      distanceLabel = `📍 ${report.distanceMeters}m ${originTag}`;
                       distanceBadgeColor = "bg-emerald-100 text-emerald-800 border-emerald-300 font-bold";
                     } else {
-                      distanceLabel = `📍 ${report.distanceKm} km away`;
+                      distanceLabel = `📍 ${report.distanceKm} km ${originTag}`;
                       distanceBadgeColor = report.distanceKm! <= 3
                         ? "bg-teal-100 text-teal-800 border-teal-300 font-bold"
                         : "bg-slate-100 text-slate-700 border-slate-200";

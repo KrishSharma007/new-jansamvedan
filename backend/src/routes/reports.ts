@@ -484,19 +484,20 @@ function getAnchorCoordinates(
   serviceArea?: string | null,
   address?: string | null,
   clientLat?: number,
-  clientLng?: number
+  clientLng?: number,
+  mode?: "service" | "live"
 ) {
-  if (clientLat && clientLng) {
-    return { lat: clientLat, lng: clientLng, source: "Live GPS" };
+  if (mode === "live" && clientLat && clientLng) {
+    return { lat: clientLat, lng: clientLng, source: "Live Field GPS" };
   }
 
   const searchTarget = `${serviceArea || ""} ${address || ""}`.toLowerCase();
   for (const [key, coords] of Object.entries(ROHINI_LOCALITY_COORDINATES)) {
     if (searchTarget.includes(key)) {
-      return { ...coords, source: key.toUpperCase() };
+      return { ...coords, source: `Registered Office (${key.toUpperCase()})` };
     }
   }
-  return { lat: 28.705, lng: 77.118, source: "Rohini Sector 7 Hub" };
+  return { lat: 28.705, lng: 77.118, source: "Registered Area (Sector 7)" };
 }
 
 // NGO: List reports relevant to NGO service area with GPS distance & circular radius
@@ -519,11 +520,12 @@ reportsRouter.get(
         });
       }
 
+      const anchorMode = (req.query.anchorMode === "live" ? "live" : "service") as "service" | "live";
       const clientLat = req.query.lat ? parseFloat(req.query.lat) : undefined;
       const clientLng = req.query.lng ? parseFloat(req.query.lng) : undefined;
       const radiusKm = req.query.radius ? parseFloat(req.query.radius) : undefined; // e.g. 2, 5, 10, or undefined for all
 
-      const anchor = getAnchorCoordinates(ngo.serviceArea, ngo.address, clientLat, clientLng);
+      const anchor = getAnchorCoordinates(ngo.serviceArea, ngo.address, clientLat, clientLng, anchorMode);
 
       const allReports = await prisma.complaint.findMany({
         include: {
@@ -593,6 +595,7 @@ reportsRouter.get(
       return res.json({
         pendingApproval: false,
         serviceArea: ngo.serviceArea || "All Areas",
+        anchorMode,
         anchorCoords: {
           lat: anchor.lat,
           lng: anchor.lng,

@@ -20,11 +20,12 @@ export async function runNgoGpsTests(): Promise<TestResult[]> {
 
   let sampleReportId: string | null = null;
 
-  await test("NGO Endpoint GPS Proximity & Anchor (GET /reports/for-ngo)", async () => {
+  await test("NGO Endpoint Registered Office Anchor (GET /reports/for-ngo?anchorMode=service)", async () => {
     const { token } = await loginAs("amit@cleanrohini.org", "password123");
-    const res = await apiRequest("GET", "/reports/for-ngo", { token });
+    const res = await apiRequest("GET", "/reports/for-ngo?anchorMode=service", { token });
     assert(res.ok, "GET /reports/for-ngo should succeed for verified NGO");
     assertEqual(res.data.pendingApproval, false, "Verified NGO should not be pending");
+    assertEqual(res.data.anchorMode, "service", "Anchor mode matches service");
     assert(!!res.data.anchorCoords, "Response must include anchorCoords object");
     assert(typeof res.data.anchorCoords.lat === "number", "Anchor latitude must be a number");
     assert(typeof res.data.anchorCoords.lng === "number", "Anchor longitude must be a number");
@@ -38,6 +39,16 @@ export async function runNgoGpsTests(): Promise<TestResult[]> {
     assert(withDistance.length > 0, "Reports must have calculated distanceKm");
     assert(typeof withDistance[0].distanceMeters === "number", "distanceMeters must be number");
     sampleReportId = reports[0].id;
+  });
+
+  await test("NGO Endpoint Live GPS Anchor (GET /reports/for-ngo?anchorMode=live&lat=28.7050&lng=77.1180)", async () => {
+    const { token } = await loginAs("amit@cleanrohini.org", "password123");
+    const res = await apiRequest("GET", "/reports/for-ngo?anchorMode=live&lat=28.7050&lng=77.1180", { token });
+    assert(res.ok, "Live GPS query should succeed");
+    assertEqual(res.data.anchorMode, "live", "Anchor mode is live");
+    assertEqual(res.data.anchorCoords.lat, 28.705, "Anchor lat matches passed coordinate");
+    assertEqual(res.data.anchorCoords.lng, 77.118, "Anchor lng matches passed coordinate");
+    assert(res.data.anchorCoords.source.includes("Live Field GPS"), "Anchor source identifies Live GPS");
   });
 
   await test("GPS Radius Filter Enforcement (GET /reports/for-ngo?radius=2)", async () => {
