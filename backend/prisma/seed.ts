@@ -15,6 +15,13 @@ function daysAgo(n: number): Date {
 }
 
 async function main() {
+  const userCount = await prisma.user.count();
+  if (userCount > 0 && process.env.FORCE_SEED !== "true") {
+    console.log(`⚡ Database already initialized with ${userCount} users. Skipping seed to preserve data, active reports, and user sessions.`);
+    console.log(`   (To force a fresh database reset & re-seed, run: FORCE_SEED=true npm run db:seed)`);
+    return;
+  }
+
   console.log("🌱 Seeding comprehensive Rohini civic dataset...");
 
   // Clean existing tables in correct relational order

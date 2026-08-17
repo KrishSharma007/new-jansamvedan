@@ -9,6 +9,7 @@
     "start:all": "bash ./start-all.sh",
     "test": "bash ./testing/run-all.sh",
     "test:all": "bash ./testing/run-all.sh",
+    "db:reset": "npm --prefix backend run db:reset",
     "lint": "next lint",
     "setup:models": "ollama pull qwen3-vl:2b-instruct-q4_K_M && ollama pull deepseek-r1:1.5b",
     "docker:up": "docker compose up -d",

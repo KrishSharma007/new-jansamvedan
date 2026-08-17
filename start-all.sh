@@ -9,9 +9,9 @@ echo ""
 echo "🐘 [1/3] Starting Local PostgreSQL container..."
 docker compose up -d
 
-# 2. Push Schema & Seed Rohini Data
+# 2. Push Schema & Initialize Seed Data if Empty
 echo ""
-echo "🌱 [2/3] Syncing DB Schema & Rohini Seed Data..."
+echo "🌱 [2/3] Checking DB Schema & Seed Status..."
 cd backend || exit
 npx prisma db push --skip-generate >/dev/null 2>&1
 npx ts-node prisma/seed.ts
