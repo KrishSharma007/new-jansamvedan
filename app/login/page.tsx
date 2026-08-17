@@ -176,54 +176,43 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-6 border-t border-slate-200 pt-6">
-            <p className="text-sm text-center text-slate-500 mb-3 font-medium uppercase tracking-wider">Fast Demo Logins</p>
-            <div className="flex flex-col sm:flex-row gap-2.5 mb-3">
-              <Button type="button" variant="outline" onClick={() => handleDemoLogin("citizen")} className="flex-1 h-12 bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200 shadow-sm flex flex-col gap-0">
-                <span className="text-sm font-semibold">👤 Citizen</span>
-                <span className="text-[10px] font-mono opacity-70">vikram@gmail.com</span>
+          <div className="mt-6 border-t border-slate-200 pt-5">
+            <p className="text-xs text-center text-slate-500 mb-3 font-semibold uppercase tracking-wider">
+              Quick Demo Logins
+            </p>
+            <div className="grid grid-cols-3 gap-2.5">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleDemoLogin("citizen")}
+                className="h-10 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 border-blue-200 text-xs font-semibold rounded-xl shadow-2xs transition-all"
+              >
+                👤 Citizen
               </Button>
-              <Button type="button" variant="outline" onClick={() => handleDemoLogin("admin")} className="flex-1 h-12 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200 shadow-sm flex flex-col gap-0">
-                <span className="text-sm font-semibold">🛡️ Admin</span>
-                <span className="text-[10px] font-mono opacity-70">admin@jansamvedan.org</span>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleDemoLogin("admin")}
+                className="h-10 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800 border-amber-200 text-xs font-semibold rounded-xl shadow-2xs transition-all"
+              >
+                🛡️ Admin
               </Button>
-              <Button type="button" variant="outline" onClick={() => handleDemoLogin("ngo")} className="flex-1 h-12 bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-200 shadow-sm flex flex-col gap-0">
-                <span className="text-sm font-semibold">🏢 NGO</span>
-                <span className="text-[10px] font-mono opacity-70">amit@cleanrohini.org</span>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleDemoLogin("ngo")}
+                className="h-10 bg-purple-50 text-purple-700 hover:bg-purple-100 hover:text-purple-800 border-purple-200 text-xs font-semibold rounded-xl shadow-2xs transition-all"
+              >
+                🏢 NGO
               </Button>
             </div>
-            <details className="group">
-              <summary className="text-[11px] text-center text-slate-400 cursor-pointer hover:text-slate-600 select-none list-none flex items-center justify-center gap-1">
-                <span className="group-open:hidden">▸ All demo accounts (password: password123)</span>
-                <span className="hidden group-open:inline">▾ Hide accounts</span>
-              </summary>
-              <div className="mt-2 rounded-xl border border-slate-100 bg-slate-50 p-3 text-[11px] font-mono text-slate-600 space-y-1">
-                <div className="text-[10px] font-sans font-bold text-slate-400 uppercase mb-1.5">Citizens</div>
-                <div>vikram@gmail.com</div>
-                <div>neha.gupta@yahoo.com</div>
-                <div className="text-[10px] font-sans font-bold text-slate-400 uppercase mt-2 mb-1.5">Admins</div>
-                <div>admin@jansamvedan.org <span className="text-slate-400">(MCD)</span></div>
-                <div>sunita.admin@jansamvedan.org <span className="text-slate-400">(PWD)</span></div>
-                <div>anil.djb@jansamvedan.org <span className="text-slate-400">(DJB)</span></div>
-                <div>manoj.traffic@jansamvedan.org <span className="text-slate-400">(Traffic)</span></div>
-                <div>geeta.bses@jansamvedan.org <span className="text-slate-400">(BSES)</span></div>
-                <div className="text-[10px] font-sans font-bold text-slate-400 uppercase mt-2 mb-1.5">NGOs (Verified)</div>
-                <div>amit@cleanrohini.org</div>
-                <div>priya@greendelhi.org</div>
-                <div>suresh@roadsavers.org</div>
-                <div>tarun@pitampurahelps.org</div>
-                <div>kavya@shalimarbag.org</div>
-                <div className="text-[10px] font-sans font-bold text-slate-400 uppercase mt-2 mb-1.5">NGOs (Pending)</div>
-                <div>deepak@youthaid.in</div>
-              </div>
-            </details>
           </div>
 
-          <div className="mt-6 text-center text-sm text-slate-600">
+          <div className="mt-5 text-center text-xs text-slate-600">
             Don't have an account?{" "}
             <Link
               href="/signup"
-              className="text-green-600 hover:text-green-700 font-medium hover:underline"
+              className="text-emerald-600 hover:text-emerald-700 font-semibold hover:underline"
             >
               Sign up
             </Link>
