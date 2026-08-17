@@ -466,7 +466,7 @@ export default function AdminDashboard() {
                                         className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white border-none shadow-xs"
                                         onClick={() => updateStatus(report.id, "ASSIGNED", multiAssignedText, `Assigned report to partner NGO ${orgName}`)}
                                       >
-                                        Assign {orgName.split(" ")[0]}
+                                        Assign
                                       </Button>
                                     )}
                                     <Button
