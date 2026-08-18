@@ -52,7 +52,7 @@ export function Navbar() {
 
       const interval = setInterval(() => {
         fetchNotifications();
-      }, 3000);
+      }, 8000);
 
       window.addEventListener("focus", fetchNotifications);
 
@@ -69,14 +69,29 @@ export function Navbar() {
     try {
       const res = await fetch(`${API_BASE}/notifications`, {
         headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.notifications || []);
-        setUnreadCount(data.unreadCount || 0);
+      }).catch(() => null);
+
+      if (!res) return;
+
+      if (res.status === 401) {
+        // Expired/invalid session token after database reset
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        setUser(null);
+        setNotifications([]);
+        setUnreadCount(0);
+        return;
       }
-    } catch (err) {
-      console.error("Failed to load notifications:", err);
+
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data) {
+          setNotifications(data.notifications || []);
+          setUnreadCount(data.unreadCount || 0);
+        }
+      }
+    } catch {
+      // Suppress transient network errors silently during dev server reloads
     }
   };
 
@@ -87,12 +102,12 @@ export function Navbar() {
       const res = await fetch(`${API_BASE}/notifications/${id}/read`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
+      }).catch(() => null);
+      if (res && res.ok) {
         fetchNotifications();
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Silent catch
     }
   };
 
@@ -103,12 +118,12 @@ export function Navbar() {
       const res = await fetch(`${API_BASE}/notifications/read-all`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
+      }).catch(() => null);
+      if (res && res.ok) {
         fetchNotifications();
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Silent catch
     }
   };
 
